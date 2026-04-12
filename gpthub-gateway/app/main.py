@@ -14,6 +14,11 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.config import settings
+from app.memory_context import (
+    digest_turn_to_facts,
+    extract_explicit_remember,
+    maybe_compress_messages_for_context,
+)
 from app.memory_store import MemoryStore
 from app.mws_client import MWSClient
 from app.rag_store import RAGStore, extract_embeddable_documents
@@ -44,6 +49,8 @@ def _normalize_assistant_message_content(msg: dict[str, Any]) -> None:
     """Content ответа: строка или массив частей (OpenAI multimodal) — в одну строку для UI."""
     c = msg.get("content")
     if isinstance(c, str):
+        if not c.strip():
+            _merge_reasoning_text_into_assistant(msg)
         return
     if isinstance(c, list):
         parts: list[str] = []
@@ -59,6 +66,18 @@ def _normalize_assistant_message_content(msg: dict[str, Any]) -> None:
         msg["content"] = "".join(parts) if parts else ""
     elif c is None:
         msg["content"] = ""
+
+    if not (isinstance(msg.get("content"), str) and (msg.get("content") or "").strip()):
+        _merge_reasoning_text_into_assistant(msg)
+
+
+def _merge_reasoning_text_into_assistant(msg: dict[str, Any]) -> None:
+    """MWS / reasoning-модели иногда кладут ответ в reasoning*, а не в content."""
+    for key in ("reasoning_content", "reasoning"):
+        v = msg.get(key)
+        if isinstance(v, str) and v.strip():
+            msg["content"] = v
+            return
 
 
 def _delta_content_to_text(delta: dict[str, Any]) -> str:
@@ -76,6 +95,63 @@ def _delta_content_to_text(delta: dict[str, Any]) -> str:
                 parts.append(p)
         return "".join(parts)
     return ""
+
+
+def _ensure_delta_content_for_client(delta: dict[str, Any]) -> None:
+    """Чтобы Open WebUI не показывал пустой бабл, дублируем reasoning* в delta.content."""
+    if _delta_content_to_text(delta):
+        return
+    for key in ("reasoning_content", "reasoning"):
+        v = delta.get(key)
+        if isinstance(v, str) and v:
+            delta["content"] = v
+            return
+
+
+async def _persist_turn_memory(
+    user_id: str, last_user_text: str, assistant_text: str
+) -> None:
+    """После ответа: явное «запомни», LLM-digest фактов и опционально сырой обмен."""
+    if not _memory or not last_user_text:
+        return
+    at = (assistant_text or "").strip()
+    if not at:
+        return
+    try:
+        ex = extract_explicit_remember(last_user_text)
+        if ex:
+            await _memory.add_fact(user_id, ex, tag="explicit")
+        if settings.memory_llm_digest:
+            facts = await digest_turn_to_facts(_client, last_user_text, at)
+            for f in facts:
+                await _memory.add_fact(user_id, f, tag="fact")
+            if (
+                not facts
+                and not ex
+                and settings.memory_raw_fallback
+            ):
+                await _memory.add_exchange(user_id, last_user_text, assistant_text)
+        else:
+            await _memory.add_exchange(user_id, last_user_text, assistant_text)
+    except Exception as ex:
+        logger.debug("memory persist: %s", ex)
+
+
+def _patch_stream_chunk_for_ui(j: dict[str, Any]) -> None:
+    """Нормализация SSE: reasoning в content + редкий fallback message.content."""
+    choices = j.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return
+    ch0 = choices[0]
+    delta = ch0.get("delta")
+    if isinstance(delta, dict):
+        _ensure_delta_content_for_client(delta)
+        if not _delta_content_to_text(delta):
+            msg = ch0.get("message")
+            if isinstance(msg, dict):
+                mc = msg.get("content")
+                if isinstance(mc, str) and mc:
+                    delta["content"] = mc
 
 
 logging.basicConfig(level=logging.INFO)
@@ -313,6 +389,7 @@ async def maybe_image_generation_chat(
 async def chat_completions(request: Request) -> Response:
     body = await request.json()
     messages: list[dict[str, Any]] = list(body.get("messages") or [])
+    messages = await maybe_compress_messages_for_context(_client, messages)
     user_id = (body.get("user") or "default")[:128]
     requested_model = (body.get("model") or "").strip()
     stream = bool(body.get("stream"))
@@ -345,6 +422,11 @@ async def chat_completions(request: Request) -> Response:
     last_text = _content_to_text(lu.get("content") if lu else None)
 
     extra_parts: list[str] = []
+    explicit_hint = extract_explicit_remember(last_text) if last_text else ""
+    if explicit_hint:
+        extra_parts.append(
+            f"Пользователь просит сохранить в долгосрочной памяти: {explicit_hint}"
+        )
     if _memory and last_text:
         mem = await _memory.retrieve(user_id, last_text[:2000])
         if mem:
@@ -405,12 +487,11 @@ async def chat_completions(request: Request) -> Response:
                     )
         except Exception as ex:
             logger.debug("normalize assistant: %s", ex)
-        # сохранить обмен
         if _memory and last_text:
             try:
                 ch = (out.get("choices") or [{}])[0].get("message", {}).get("content")
                 if isinstance(ch, str) and ch:
-                    await _memory.add_exchange(user_id, last_text[:2000], ch[:4000])
+                    await _persist_turn_memory(user_id, last_text[:2000], ch[:4000])
             except Exception as ex:
                 logger.debug("memory save: %s", ex)
         return JSONResponse(out)
@@ -441,14 +522,18 @@ async def chat_completions(request: Request) -> Response:
                             break
                         try:
                             j = json.loads(payload)
+                            _patch_stream_chunk_for_ui(j)
                             delta = (j.get("choices") or [{}])[0].get("delta") or {}
                             c = _delta_content_to_text(delta)
                             if c:
                                 acc.append(c)
+                            line = f"data: {json.dumps(j, ensure_ascii=False)}"
                         except json.JSONDecodeError:
                             pass
                     yield line + "\n\n"
         if _memory and last_text and acc:
-            await _memory.add_exchange(user_id, last_text[:2000], "".join(acc)[:4000])
+            await _persist_turn_memory(
+                user_id, last_text[:2000], "".join(acc)[:4000]
+            )
 
     return StreamingResponse(gen(), media_type="text/event-stream")

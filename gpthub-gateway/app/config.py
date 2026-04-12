@@ -44,10 +44,42 @@ class Settings(BaseSettings):
     asr_model: str = "whisper-large-v3"
     embedding_model: str = "bge-m3"
 
-    memory_top_k: int = 5
+    memory_top_k: int = 8
     rag_top_k: int = 5
     chunk_size: int = 900
     chunk_overlap: int = 120
+
+    # Память в духе OpenClaw: факты через LLM + лимит строк в SQLite
+    memory_max_items_per_user: int = Field(
+        default=400, validation_alias="GPTHUB_MEMORY_MAX_ITEMS"
+    )
+    memory_llm_digest: bool = Field(
+        default=True,
+        validation_alias="GPTHUB_MEMORY_LLM_DIGEST",
+        description="После ответа извлекать 0..N фактов отдельным вызовом LLM",
+    )
+    memory_digest_model: str = Field(
+        default="mts-anya",
+        validation_alias="GPTHUB_MEMORY_DIGEST_MODEL",
+    )
+    memory_raw_fallback: bool = Field(
+        default=False,
+        validation_alias="GPTHUB_MEMORY_RAW_FALLBACK",
+        description="Если digest пуст — всё равно сохранять сырой обмен (шумнее)",
+    )
+    # Длинные диалоги: сжать «голову» переписки в сводку (дороже по токенам)
+    memory_compress_enabled: bool = Field(
+        default=False,
+        validation_alias="GPTHUB_MEMORY_COMPRESS_CONTEXT",
+    )
+    memory_compress_after_messages: int = Field(
+        default=36,
+        validation_alias="GPTHUB_MEMORY_COMPRESS_AFTER",
+    )
+    memory_compress_keep_last: int = Field(
+        default=16,
+        validation_alias="GPTHUB_MEMORY_COMPRESS_KEEP",
+    )
 
     # Префикс [GPTHub route: …] в system при true (демо / отладка)
     router_debug: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_DEBUG")

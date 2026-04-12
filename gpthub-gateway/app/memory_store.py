@@ -82,9 +82,62 @@ class MemoryStore:
             top = [t for s, t in scored[:3]]
         if not top:
             return ""
-        return "Факты из долгосрочной памяти (может быть полезно):\n" + "\n".join(
-            f"- {x}" for x in top
+        return (
+            "Долгосрочная память о пользователе (опирайся, если уместно; не выдумывай фактов сверх этого):\n"
+            + "\n".join(f"- {x}" for x in top)
         )
+
+    def _insert_row(self, user_id: str, text: str, emb: list[float]) -> None:
+        conn = sqlite3.connect(self.path)
+        try:
+            conn.execute(
+                "INSERT INTO memory_items (id, user_id, text, embedding_json, created) VALUES (?,?,?,?,?)",
+                (
+                    str(uuid.uuid4()),
+                    user_id,
+                    text,
+                    json.dumps(emb),
+                    time.time(),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def prune_oldest(self, user_id: str) -> None:
+        """Ограничить число записей на пользователя (FIFO)."""
+        max_n = max(10, settings.memory_max_items_per_user)
+        conn = sqlite3.connect(self.path)
+        try:
+            (n,) = conn.execute(
+                "SELECT COUNT(*) FROM memory_items WHERE user_id = ?", (user_id,)
+            ).fetchone()
+            excess = int(n) - max_n
+            if excess <= 0:
+                return
+            rows = conn.execute(
+                "SELECT id FROM memory_items WHERE user_id = ? ORDER BY created ASC LIMIT ?",
+                (user_id, excess),
+            ).fetchall()
+            for (row_id,) in rows:
+                conn.execute("DELETE FROM memory_items WHERE id = ?", (row_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    async def add_fact(self, user_id: str, text: str, tag: str = "") -> None:
+        """Одна курируемая запись (факт из digest или «запомни …»)."""
+        line = text.strip()
+        if len(line) < 3:
+            return
+        if tag:
+            line = f"[{tag}] {line}"
+        try:
+            emb = (await self._client.embeddings([line[:2000]]))[0]
+        except Exception:
+            return
+        self._insert_row(user_id, line, emb)
+        self.prune_oldest(user_id)
 
     async def add_exchange(
         self, user_id: str, user_text: str, assistant_text: str
@@ -94,18 +147,5 @@ class MemoryStore:
             emb = (await self._client.embeddings([line[:2000]]))[0]
         except Exception:
             return
-        conn = sqlite3.connect(self.path)
-        try:
-            conn.execute(
-                "INSERT INTO memory_items (id, user_id, text, embedding_json, created) VALUES (?,?,?,?,?)",
-                (
-                    str(uuid.uuid4()),
-                    user_id,
-                    line,
-                    json.dumps(emb),
-                    time.time(),
-                ),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+        self._insert_row(user_id, line, emb)
+        self.prune_oldest(user_id)

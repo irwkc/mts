@@ -1,4 +1,25 @@
 /*
- * BAOBAB: favicon / splash / PWA подставляются в Dockerfile из assets/baobab-logo.png.
- * Тема Open WebUI — стандартная; отдельные переопределения не задаём.
+ * BAOBAB: favicon / PWA / внутренние лого — из assets/baobab-logo.png (Dockerfile).
+ * Splash: только надпись «BAOBAB productions», без картинки-лого; фон — штатный Open WebUI.
  */
+#splash-screen #logo {
+  display: none !important;
+}
+
+#splash-screen::after {
+  content: "BAOBAB productions";
+  display: block;
+  margin-top: 0.5rem;
+  font-size: clamp(1.125rem, 2.5vw, 1.5rem);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+html.dark #splash-screen::after {
+  color: #e5e5e5;
+}
+
+html:not(.dark) #splash-screen::after {
+  color: #171717;
+}
