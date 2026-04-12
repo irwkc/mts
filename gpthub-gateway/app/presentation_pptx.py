@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Any, Optional
 
@@ -39,26 +40,131 @@ def sanitize_ooxml_text(s: str, max_len: int = 32000) -> str:
     return t[:max_len]
 
 
+# Белый список имён шрифтов для полей title_font / body_font в JSON слайда (Keynote/PowerPoint).
+_SAFE_FONT_ALIASES: dict[str, str] = {
+    "arial": "Arial",
+    "calibri": "Calibri",
+    "cambria": "Cambria",
+    "georgia": "Georgia",
+    "helvetica": "Helvetica",
+    "tahoma": "Tahoma",
+    "times": "Times New Roman",
+    "times new roman": "Times New Roman",
+    "verdana": "Verdana",
+}
+
+
+def _font_face_from_field(raw: Any, fallback: str) -> str:
+    s = str(raw or "").strip().lower()
+    if not s:
+        return fallback
+    return _SAFE_FONT_ALIASES.get(s) or _SAFE_FONT_ALIASES.get(s.replace("  ", " ")) or fallback
+
+
+def _bundled_template_path() -> Path:
+    return Path(__file__).resolve().parent / "assets" / "keynote_base.pptx"
+
+
+def _open_presentation_base() -> Presentation:
+    """Каркас: по умолчанию голый Presentation() — проще для Keynote; иначе файл шаблона."""
+    if not settings.gena_pptx_use_bundled_template and not (settings.gena_pptx_template_path or "").strip():
+        return Presentation()
+    custom = (settings.gena_pptx_template_path or "").strip()
+    if custom:
+        p = Path(custom)
+        if p.is_file():
+            try:
+                return Presentation(str(p))
+            except Exception as e:
+                logger.warning("custom PPTX template unreadable, fallback: %s (%s)", p, e)
+    bundled = _bundled_template_path()
+    if bundled.is_file():
+        try:
+            return Presentation(str(bundled))
+        except Exception as e:
+            logger.warning("bundled PPTX template unreadable, fallback empty deck: %s (%s)", bundled, e)
+    return Presentation()
+
+
+def _validate_ooxml_package(path: Path, slide_count: int) -> bool:
+    """Минимальная проверка ZIP-пакета презентации."""
+    required = (
+        "[Content_Types].xml",
+        "_rels/.rels",
+        "ppt/presentation.xml",
+    )
+    try:
+        with zipfile.ZipFile(path, "r") as z:
+            names = set(z.namelist())
+            for req in required:
+                if req not in names:
+                    logger.error("pptx package missing %s", req)
+                    return False
+            for i in range(1, max(1, slide_count) + 1):
+                sp = f"ppt/slides/slide{i}.xml"
+                if sp not in names:
+                    logger.error("pptx package missing %s", sp)
+                    return False
+    except zipfile.BadZipFile as e:
+        logger.error("pptx not a valid zip: %s", e)
+        return False
+    return True
+
+
+def _roundtrip_repair(path: Path) -> None:
+    """Перечитать и сохранить — часто устраняет мелкие несовместимости импортёров."""
+    prs = Presentation(str(path))
+    prs.save(str(path))
+
+
 def _ensure_keynote_safe_image(src: Optional[Path]) -> Optional[Path]:
-    """PNG/JPEG для встраивания в PPTX; WebP/GIF и прочее — конвертация в PNG (Keynote не любит WebP)."""
+    """Всегда пересохраняем в PNG RGB — Keynote/PowerPoint меньше ломаются на «чужих» JPEG/WebP."""
     if src is None or not src.is_file():
         return None
-    suf = src.suffix.lower()
-    if suf in (".jpg", ".jpeg", ".png"):
-        return src
+    max_px = int(settings.gena_pptx_max_image_px)
     try:
-        from io import BytesIO
-
         from PIL import Image
 
+        with Image.open(src) as im0:
+            im0.verify()
+
         with Image.open(src) as im:
+            im.load()
             im = im.convert("RGB")
-            out = src.parent / f"{src.stem}_pptx.png"
-            im.save(out, "PNG")
+            w, h = im.size
+            if max(w, h) > max_px:
+                scale = max_px / float(max(w, h))
+                w, h = max(1, int(w * scale)), max(1, int(h * scale))
+                try:
+                    resample = Image.Resampling.LANCZOS
+                except AttributeError:
+                    resample = Image.LANCZOS  # Pillow < 9.1
+                im = im.resize((w, h), resample)
+            out = src.parent / f"{src.stem}_embed_{uuid.uuid4().hex[:8]}.png"
+            im.save(out, "PNG", optimize=True)
             return out
     except Exception as e:
         logger.warning("cannot use image for PPTX (convert/skip): %s (%s)", src, e)
         return None
+
+
+def _effective_preset(slide_data: dict[str, Any], idx: int) -> dict[str, Any]:
+    """Пресет + font_scale и переопределения шрифтов из JSON слайда."""
+    preset = dict(_preset_for_slide(slide_data, idx))
+    raw_scale = slide_data.get("font_scale")
+    if raw_scale is None:
+        raw_scale = slide_data.get("typography_scale")
+    try:
+        sc = float(raw_scale)
+    except (TypeError, ValueError):
+        sc = 1.0
+    sc = max(0.75, min(1.35, sc))
+    for k in ("title_pt", "subtitle_pt", "body_pt", "footer_pt"):
+        preset[k] = max(8, min(56, int(round(int(preset[k]) * sc))))
+    preset["title_face"] = _font_face_from_field(slide_data.get("title_font"), preset["title_face"])
+    preset["body_face"] = _font_face_from_field(slide_data.get("body_font"), preset["body_face"])
+    preset["notes_face"] = _font_face_from_field(slide_data.get("notes_font"), preset["notes_face"])
+    return preset
 
 
 _DEFAULT_ACCENTS = [
@@ -100,15 +206,6 @@ def _body_text_rgb(accent_rgb: tuple[int, int, int]) -> RGBColor:
     tg = min(255, int(g * 0.18 + 32 * 0.82))
     tb = min(255, int(b * 0.18 + 48 * 0.82))
     return RGBColor(tr, tg, tb)
-
-
-def _darken_bar_strip(accent: RGBColor) -> RGBColor:
-    try:
-        v = int(accent)
-        r, g, b = (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF
-    except Exception:
-        r, g, b = 30, 64, 120
-    return RGBColor(max(0, int(r * 0.55)), max(0, int(g * 0.55)), max(0, int(b * 0.55)))
 
 
 # Пресеты: Arial есть в macOS/Windows — Keynote стабильнее, чем с «Calibri Light».
@@ -367,7 +464,7 @@ def build_colorful_pptx(
     deck_title: str = "",
 ) -> None:
     """Собрать PPTX: типографика, цвета из акцента, полосы, подвал, заметки."""
-    prs = Presentation()
+    prs = _open_presentation_base()
     try:
         blank = prs.slide_layouts[6]
     except IndexError:
@@ -378,7 +475,7 @@ def build_colorful_pptx(
     n_slides = len(slides_data)
 
     for idx, slide_data in enumerate(slides_data):
-        preset = _preset_for_slide(slide_data, idx)
+        preset = _effective_preset(slide_data, idx)
         bar_h = Inches(float(preset["bar_in"]))
         raw_img = image_paths[idx] if idx < len(image_paths) else None
         img_path = _ensure_keynote_safe_image(raw_img)
@@ -423,19 +520,6 @@ def build_colorful_pptx(
         top_bar.fill.fore_color.rgb = accent
         top_bar.line.fill.background()
 
-        # Нижняя кромка полосы (глубже акцент)
-        strip_h = Inches(0.05)
-        bar_bottom = slide.shapes.add_shape(
-            MSO_SHAPE.RECTANGLE,
-            0,
-            Emu(max(0, int(bar_h) - int(strip_h))),
-            slide_w,
-            strip_h,
-        )
-        bar_bottom.fill.solid()
-        bar_bottom.fill.fore_color.rgb = _darken_bar_strip(accent)
-        bar_bottom.line.fill.background()
-
         # Заголовок
         tx_title = slide.shapes.add_textbox(
             Inches(0.42),
@@ -462,7 +546,7 @@ def build_colorful_pptx(
             ps.font.name = preset["body_face"]
             ps.font.size = Pt(int(preset["subtitle_pt"]))
             ps.font.bold = False
-            ps.font.italic = True
+            ps.font.italic = False
             ps.font.color.rgb = RGBColor(235, 240, 255)
             ps.space_before = Pt(3)
             _set_paragraph_line_spacing(ps, 1.1)
@@ -494,7 +578,7 @@ def build_colorful_pptx(
             else:
                 p = tf_b.add_paragraph()
             # Одна строка с маркером — так Keynote не ломается на пустом p.text + нескольких run.
-            p.text = "●  " + text
+            p.text = "- " + text
             p.font.name = preset["body_face"]
             p.font.size = Pt(int(preset["body_pt"]))
             p.font.color.rgb = body_col
@@ -567,7 +651,10 @@ def build_colorful_pptx(
         if sn_parts:
             try:
                 ns = slide.notes_slide
-                ns.notes_text_frame.text = sanitize_ooxml_text("\n\n".join(sn_parts), 15000)
+                # Одна вертикальная «простыня» с \n — Keynote хуже переваривает несколько абзацев из \n\n.
+                note_blob = "\n".join(sn_parts)
+                note_blob = re.sub(r"\n{3,}", "\n\n", note_blob)
+                ns.notes_text_frame.text = sanitize_ooxml_text(note_blob, 10000)
                 for np in ns.notes_text_frame.paragraphs:
                     np.font.name = preset["notes_face"]
                     np.font.size = Pt(11)
@@ -577,6 +664,16 @@ def build_colorful_pptx(
                 logger.warning("speaker notes: %s", e)
 
     prs.save(str(out_path))
+    n = len(slides_data)
+    if settings.gena_pptx_validate_zip and not _validate_ooxml_package(out_path, n):
+        logger.warning("pptx package validation failed: %s", out_path)
+    if settings.gena_pptx_roundtrip:
+        try:
+            _roundtrip_repair(out_path)
+        except Exception as e:
+            logger.warning("pptx round-trip repair failed: %s", e)
+        if settings.gena_pptx_validate_zip and not _validate_ooxml_package(out_path, n):
+            logger.warning("pptx package invalid after round-trip: %s", out_path)
 
 
 async def _resolve_one_slide_image(

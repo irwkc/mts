@@ -9,6 +9,7 @@ import logging
 import re
 import uuid
 from typing import AsyncGenerator
+from urllib.parse import quote
 
 import httpx
 from fastapi import Request
@@ -92,6 +93,20 @@ def public_static_url(request: Request, rel_path: str) -> str:
     return str(request.base_url).rstrip("/") + "/" + rel_path
 
 
+def presentation_preview_markdown(request: Request, fname: str) -> str:
+    """Ссылки на страницу предпросмотра шлюза и на Office Online (нужен публичный URL к PPTX)."""
+    rel = f"static/presentations/{fname}"
+    base = str(request.base_url).rstrip("/")
+    page = f"{base}/preview/pptx?path={quote(rel, safe='')}"
+    abs_url = public_static_url(request, rel)
+    office = f"https://view.officeapps.live.com/op/embed.aspx?src={quote(abs_url, safe='')}"
+    return (
+        f"[Предпросмотр в браузере]({page}) · [Office Online]({office})\n\n"
+        "*Предпросмотр с сервера Microsoft сработает, если по ссылке на PPTX доступен публичный HTTPS "
+        "(настройте `GPTHUB_PUBLIC_BASE_URL`). Иначе скачайте файл — локально в PowerPoint / Keynote.*\n\n"
+    )
+
+
 async def stream_presentation_pptx(
     request: Request,
     client: MWSClient,
@@ -99,7 +114,7 @@ async def stream_presentation_pptx(
     available_ids: set[str],
 ) -> AsyncGenerator[str, None]:
     yield sse_delta(
-        "**[gena · презентация]** — веб-поиск, структура слайдов, картинки (веб/нейро), PPTX + JSON.\n\n"
+        "**[gena · презентация]** — веб-поиск, структура слайдов, картинки (веб/нейро), цветной PPTX.\n\n"
     )
     yield sse_delta("*(Презентация: ищу материалы в интернете…)*\n\n")
     research = web_search_ddg((prompt or "")[:600], max_results=6)
@@ -136,6 +151,9 @@ async def stream_presentation_pptx(
         '"sources":[{"title":"кратко","url":"https://..."}],'
         '"visual_style":"corporate|modern|bold|compact"}'
         "]}\n"
+        "Опционально в объекте слайда (если уместно): "
+        '"font_scale": число 0.85–1.2 (крупность текста относительно стиля); '
+        '"title_font"|"body_font"|"notes_font": одно из arial, calibri, georgia, times, helvetica, verdana, tahoma. '
         "Правила: 5–10 слайдов; разные гармоничные accent; visual_style задаёт шрифты и плотность верстки; "
         "image_mode: search — только реальные фото/схемы из интернета; generate — только нейро-иллюстрация; "
         "auto — сначала подобрать изображение из веба, иначе нейро. "
@@ -188,6 +206,7 @@ async def stream_presentation_pptx(
             "✅ **Презентация готова** — цветные слайды, **заметки докладчика** (в PowerPoint или Keynote: режим докладчика / заметки), "
             "картинки из **интернета** и/или **нейросети** по полю `image_mode`.\n\n"
             f"[Скачать PPTX]({url})\n\n"
+            + presentation_preview_markdown(request, fname)
         )
     except Exception as e:
         logger.exception("presentation")

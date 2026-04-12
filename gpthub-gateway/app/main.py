@@ -12,7 +12,9 @@ from typing import Any, Optional
 
 import httpx
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse, StreamingResponse
+from urllib.parse import quote
+
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
@@ -245,6 +247,40 @@ _static_root.mkdir(parents=True, exist_ok=True)
 (_static_root / "presentations").mkdir(parents=True, exist_ok=True)
 (_static_root / "music").mkdir(parents=True, exist_ok=True)
 (_static_root / "images").mkdir(parents=True, exist_ok=True)
+
+
+@app.get("/preview/pptx", response_class=HTMLResponse)
+async def preview_pptx(request: Request, path: str) -> HTMLResponse:
+    """Страница с iframe Office Online; внешнему viewer нужен публичный HTTPS-URL к PPTX."""
+    rel = (path or "").strip().lstrip("/")
+    if ".." in rel or not rel.startswith("static/presentations/") or not rel.lower().endswith(".pptx"):
+        return HTMLResponse("<p>Invalid path</p>", status_code=400)
+    abs_url = public_static_url(request, rel)
+    enc = quote(abs_url, safe="")
+    office = f"https://view.officeapps.live.com/op/embed.aspx?src={enc}"
+    google = f"https://docs.google.com/viewer?embedded=true&url={enc}"
+    html = f"""<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Предпросмотр PPTX</title>
+<style>
+body {{ font-family: system-ui, sans-serif; margin: 0; background: #121212; color: #e5e5e5; }}
+.bar {{ padding: 10px 14px; background: #1e1e1e; font-size: 14px; border-bottom: 1px solid #333; }}
+.bar a {{ color: #93c5fd; margin-right: 14px; }}
+.note {{ padding: 10px 14px; font-size: 12px; color: #a3a3a3; line-height: 1.4; }}
+iframe {{ width: 100%; height: calc(100vh - 120px); border: 0; background: #000; }}
+</style></head>
+<body>
+<div class="bar">
+<a href="{office}" target="_blank" rel="noopener">Office Online (новая вкладка)</a>
+<a href="{google}" target="_blank" rel="noopener">Google Viewer</a>
+<a href="{abs_url}">Скачать PPTX</a>
+</div>
+<p class="note">Встроенный просмотр загружает файл с URL ниже. Нужен <strong>публичный HTTPS</strong> (задайте GPTHUB_PUBLIC_BASE_URL). На localhost предпросмотр может не сработать — скачайте файл и откройте в PowerPoint или Keynote.</p>
+<iframe src="{office}" title="pptx preview"></iframe>
+</body></html>"""
+    return HTMLResponse(html)
+
+
 app.mount("/static", StaticFiles(directory=str(_static_root)), name="static")
 
 _models_cache: dict[str, Any] = {"t": 0.0, "data": None}

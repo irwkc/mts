@@ -142,6 +142,34 @@ class Settings(BaseSettings):
         default=10,
         validation_alias="GPTHUB_MAX_PRESENTATION_SLIDES",
     )
+    # Базовый PPTX для сборки (пусто — встроенный файл keynote_base.pptx). См. gena_pptx_use_bundled_template.
+    gena_pptx_template_path: str = Field(
+        default="",
+        validation_alias="GPTHUB_PPTX_TEMPLATE_PATH",
+    )
+    # True — грузить app/assets/keynote_base.pptx (или кастомный шаблон). False — голый Presentation() (часто лучше для Keynote).
+    gena_pptx_use_bundled_template: bool = Field(
+        default=False,
+        validation_alias="GPTHUB_PPTX_USE_BUNDLED_TEMPLATE",
+    )
+    # Второе сохранение через Presentation(path) — у PowerPoint иногда помогает; Keynote часто ломает импорт — по умолчанию выкл.
+    gena_pptx_roundtrip: bool = Field(default=False, validation_alias="GPTHUB_PPTX_ROUNDTRIP")
+    # Проверка ZIP/обязательных частей после записи.
+    gena_pptx_validate_zip: bool = Field(default=True, validation_alias="GPTHUB_PPTX_VALIDATE_ZIP")
+    # Длинная сторона картинки для встраивания (даунскейл при превышении).
+    gena_pptx_max_image_px: int = Field(
+        default=4096,
+        validation_alias="GPTHUB_PPTX_MAX_IMAGE_PX",
+    )
+
+    @field_validator("gena_pptx_max_image_px", mode="before")
+    @classmethod
+    def clamp_pptx_max_image_px(cls, v: object) -> int:
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            return 4096
+        return max(512, min(8192, n))
 
     @field_validator("router_mode", mode="before")
     @classmethod
