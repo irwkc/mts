@@ -25,9 +25,15 @@ apt-get update -qq
 apt-get install -y -qq nginx
 
 install -m 644 "$MAP_SRC" "$MAP_DST"
-install -m 644 "$CONF_SRC" "$CONF_DST"
-rm -f /etc/nginx/sites-enabled/default
-ln -sf "$CONF_DST" /etc/nginx/sites-enabled/mts
+
+# Не затирать vhost, если уже настроен HTTPS (Certbot) — иначе пропадёт :443 и https://домен
+if [[ -f "$CONF_DST" ]] && grep -qE 'listen[[:space:]]+.*443|managed by Certbot' "$CONF_DST" 2>/dev/null; then
+  echo "Сохраняю $CONF_DST: найден HTTPS/Certbot. Обновлён только websocket map."
+else
+  install -m 644 "$CONF_SRC" "$CONF_DST"
+  rm -f /etc/nginx/sites-enabled/default
+  ln -sf "$CONF_DST" /etc/nginx/sites-enabled/mts
+fi
 
 nginx -t
 systemctl enable nginx
