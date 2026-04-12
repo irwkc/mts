@@ -30,4 +30,14 @@ nginx -t
 systemctl enable nginx
 systemctl reload nginx
 
+echo "Ожидание Open WebUI на 127.0.0.1:3000 (до ~3 мин после деплоя)..."
+for i in $(seq 1 90); do
+  if curl -sfS --connect-timeout 2 "http://127.0.0.1:3000/" -o /dev/null; then
+    echo "Open WebUI отвечает (попытка $i)"
+    systemctl reload nginx
+    break
+  fi
+  sleep 2
+done
+
 echo "nginx настроен: http://$(curl -sS ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')/"

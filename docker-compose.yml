@@ -26,7 +26,8 @@ services:
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
     depends_on:
-      - gpthub-gateway
+      gpthub-gateway:
+        condition: service_healthy
     ports:
       # Только localhost: снаружи отдаёт nginx на :80 (см. deploy/nginx-open-webui.conf)
       - "127.0.0.1:3000:8080"
@@ -44,6 +45,13 @@ services:
     volumes:
       - open-webui-data:/app/backend/data
     restart: unless-stopped
+    healthcheck:
+      # В образе Open WebUI не всегда есть curl; Python есть в backend-образе
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/')"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 180s
 
 volumes:
   gpthub-data:

@@ -34,4 +34,13 @@ if systemctl is-enabled nginx &>/dev/null; then
   systemctl enable nginx
 fi
 
+# nginx не должен стартовать раньше контейнеров (иначе 502 сразу после reboot)
+mkdir -p /etc/systemd/system/nginx.service.d
+cat > /etc/systemd/system/nginx.service.d/10-after-mts.conf <<'EOF'
+[Unit]
+After=mts-docker.service
+Wants=mts-docker.service
+EOF
+systemctl daemon-reload
+
 echo "Готово: mts-docker.service включён. Проверка: systemctl status mts-docker.service"
