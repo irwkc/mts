@@ -20,7 +20,7 @@ bash scripts/compose-up-verbose.sh
 
 Одна команда после подготовки `.env`: `docker compose up -d --build`.
 
-Откройте в браузере: **http://localhost:3000**
+Откройте в браузере: **http://localhost** (порт 80) или **http://localhost:3000**. На сервере: `http://<IP>/` или `http://<IP>:3000` — только **http://**, не **https://**, пока нет TLS.
 
 - API шлюза (отладка): **http://localhost:8081/v1/models**
 - Первый вход в Open WebUI: создайте локальную учётную запись (если включён `ENABLE_SIGNUP`).
