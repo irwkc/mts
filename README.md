@@ -32,6 +32,8 @@ bash scripts/compose-up-verbose.sh
 
 Материалы сдачи: [docs/FEATURES_CHECKLIST.md](docs/FEATURES_CHECKLIST.md), [docs/PRESENTATION.md](docs/PRESENTATION.md), сценарий записи видео — [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
+Голос и диктофон: в compose заданы `AUDIO_STT_*` и `AUDIO_TTS_*` на шлюз (`/v1/audio/transcriptions`, `/v1/audio/speech` → MWS). Модель Whisper — `ASR_MODEL` в `.env`. Нейро-роутер: `GPTHUB_ROUTER_USE_LLM=true`, модель классификации — `GPTHUB_ROUTER_LLM_MODEL` (та же MWS API, по умолчанию `mts-anya`).
+
 ## Переменные окружения
 
 См. [.env.example](.env.example). Критично: `MWS_API_KEY`. Имена моделей (`DEFAULT_LLM`, `VISION_MODEL`, …) должны совпадать с ответом `GET /v1/models` для вашего ключа.

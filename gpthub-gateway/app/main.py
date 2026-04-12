@@ -17,11 +17,14 @@ from app.config import settings
 from app.memory_store import MemoryStore
 from app.mws_client import MWSClient
 from app.rag_store import RAGStore, extract_embeddable_documents
+from app.router_llm import resolve_auto_route_with_llm
 from app.router_logic import (
     IMAGE_GEN_RE,
+    apply_manual_route,
     inject_router_debug,
     last_user_message,
-    pick_route,
+    normalize_requested_model,
+    pick_route_deterministic,
     _content_to_text,
     message_has_image,
     message_has_audio,
@@ -145,6 +148,29 @@ async def images(request: Request) -> Response:
         )
 
 
+@app.post("/v1/audio/speech")
+async def audio_speech(request: Request) -> Response:
+    """TTS (голос ответа); прокси на MWS. Если endpoint недоступен — 502."""
+    body = await request.json()
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            r = await client.post(
+                f"{settings.mws_api_base.rstrip('/')}/audio/speech",
+                headers={
+                    "Authorization": f"Bearer {settings.mws_api_key}",
+                    "Content-Type": "application/json",
+                },
+                content=json.dumps(body),
+            )
+        ct = r.headers.get("content-type", "application/octet-stream")
+        return Response(content=r.content, status_code=r.status_code, media_type=ct)
+    except Exception as e:
+        return JSONResponse(
+            {"error": {"message": str(e), "type": "gateway_error"}},
+            status_code=502,
+        )
+
+
 @app.post("/v1/audio/transcriptions")
 async def transcribe(request: Request) -> Response:
     # multipart → MWS
@@ -253,7 +279,15 @@ async def chat_completions(request: Request) -> Response:
     stream = bool(body.get("stream"))
 
     available = await get_available_model_ids()
-    resolved_model, route_note = pick_route(messages, requested_model, available)
+    req = normalize_requested_model(requested_model)
+    if req and req != settings.auto_model_id:
+        resolved_model, route_note = apply_manual_route(req, available)
+    elif settings.router_use_llm:
+        resolved_model, route_note = await resolve_auto_route_with_llm(
+            messages, available, _client
+        )
+    else:
+        resolved_model, route_note = pick_route_deterministic(messages, available)
     logger.info(
         "chat route requested=%r -> model=%s note=%s",
         requested_model,

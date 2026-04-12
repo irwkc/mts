@@ -38,6 +38,9 @@ class Settings(BaseSettings):
 
     # Префикс [GPTHub route: …] в system при true (демо / отладка)
     router_debug: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_DEBUG")
+    # Авторежим: выбор модели через один вызов LLM к MWS (иначе — правила pick_route_deterministic)
+    router_use_llm: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_USE_LLM")
+    router_llm_model: str = Field(default="mts-anya", validation_alias="GPTHUB_ROUTER_LLM_MODEL")
 
 
 settings = Settings()

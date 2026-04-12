@@ -86,19 +86,16 @@ def message_has_audio(messages: list[dict[str, Any]]) -> bool:
     return False
 
 
-def pick_route(
+def apply_manual_route(req: str, available_ids: set[str]) -> tuple[str, str]:
+    mid = req if req in available_ids else settings.default_llm
+    return mid, "manual"
+
+
+def pick_route_deterministic(
     messages: list[dict[str, Any]],
-    requested_model: str,
     available_ids: set[str],
 ) -> tuple[str, str]:
-    """
-    Returns (resolved_model_id, route_note).
-    """
-    req = normalize_requested_model(requested_model)
-    if req and req != settings.auto_model_id:
-        mid = req if req in available_ids else settings.default_llm
-        return mid, "manual"
-
+    """Автовыбор без LLM (правила)."""
     lu = last_user_message(messages)
     text = _content_to_text(lu.get("content") if lu else None)
 
@@ -145,6 +142,20 @@ def pick_route(
         if x != settings.auto_model_id:
             return x, "auto:fallback"
     return settings.default_llm, "auto:fallback"
+
+
+def pick_route(
+    messages: list[dict[str, Any]],
+    requested_model: str,
+    available_ids: set[str],
+) -> tuple[str, str]:
+    """
+    Ручной режим или детерминированный авто-режим (для тестов / fallback).
+    """
+    req = normalize_requested_model(requested_model)
+    if req and req != settings.auto_model_id:
+        return apply_manual_route(req, available_ids)
+    return pick_route_deterministic(messages, available_ids)
 
 
 def inject_router_debug(

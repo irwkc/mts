@@ -13,7 +13,7 @@
 | 7 | Поиск в интернете | Да | DuckDuckGo (`duckduckgo-search`) → фрагменты в system → ответ только LLM через MWS. |
 | 8 | Веб-парсинг по ссылке | Да | trafilatura по URL из текста → фрагмент в контекст → LLM. |
 | 9 | Долгосрочная память | Да | SQLite + эмбеддинги bge-m3, retrieval в system; история треда не затирается. |
-| 10 | Автовыбор модели | Да | `gpthub-auto` в `/v1/models`; роутер в `router_logic.pick_route`; префикс `provider/model` нормализуется. |
+| 10 | Автовыбор модели | Да | `gpthub-auto`; нейро-роутер `router_llm.resolve_auto_route_with_llm` (один вызов LLM в MWS), fallback — правила в `pick_route_deterministic`; префикс `provider/model` нормализуется. |
 | 11 | Ручной выбор модели | Да | Любой id из `/v1/models` кроме авто — шлюз не подменяет `model`. |
 | 12 | Markdown и код | Да | Рендер Open WebUI. |
 | 13 | Deep Research (доп.) | Частично | Несколько запросов DDG + контекст для одного ответа LLM (`deep_research_ddg`, фразы «глубокое исследование» / `deep research`). |

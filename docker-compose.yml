@@ -13,6 +13,8 @@ services:
       ASR_MODEL: ${ASR_MODEL:-whisper-large-v3}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
       GPTHUB_ROUTER_DEBUG: ${GPTHUB_ROUTER_DEBUG:-true}
+      GPTHUB_ROUTER_USE_LLM: ${GPTHUB_ROUTER_USE_LLM:-true}
+      GPTHUB_ROUTER_LLM_MODEL: ${GPTHUB_ROUTER_LLM_MODEL:-mts-anya}
     volumes:
       - gpthub-data:/data
     ports:
@@ -45,6 +47,12 @@ services:
       WEBUI_URL: ${WEBUI_URL:-http://localhost:3000}
       # Модель по умолчанию в UI — авто-роутер (см. также нормализацию provider/id в шлюзе)
       DEFAULT_MODELS: '["gpthub-auto"]'
+      # Голос / диктофон: STT и TTS через тот же шлюз → MWS (явно, чтобы не залипал PersistentConfig в SQLite)
+      AUDIO_STT_OPENAI_API_BASE_URL: http://gpthub-gateway:8080/v1
+      AUDIO_STT_OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
+      AUDIO_STT_MODEL: ${ASR_MODEL:-whisper-large-v3}
+      AUDIO_TTS_OPENAI_API_BASE_URL: http://gpthub-gateway:8080/v1
+      AUDIO_TTS_OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
     volumes:
       - open-webui-data:/app/backend/data
     restart: unless-stopped
