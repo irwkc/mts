@@ -19,3 +19,4 @@
 | 13 | Deep Research (доп.) | **Да** | `stream_deep_research`: 3 запроса DDG + парсинг страниц + синтез LLM (`gena_long_doc_model`) в стриминге. Триггеры: «глубокое исследование», «deep research», «сделай ресерч» и др. |
 | 14 | Презентации PPTX (доп.) | **Да** | `stream_presentation_pptx`: структура слайдов через LLM (JSON) → `python-pptx` → скачиваемый файл по `/static/presentations/*.pptx`. Триггеры: «презентация», «слайды». |
 | 15 | TTS (голос ответа) | **Да** | `POST /v1/audio/speech` → прокси на MWS TTS; настроен в compose (`AUDIO_TTS_ENGINE=openai`). |
+| 16 | Демо-мелодия MP3 (доп.) | **Да** | Триггеры «сгенерируй мелодию/музыку», `music_demo.py`: ноты от LLM (JSON) или пентатоника → синус → MP3 (`pydub` + `ffmpeg`), ссылка в чате. Только без `stream`. |

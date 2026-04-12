@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+import uuid
 from typing import Any, Optional
 
 import httpx
@@ -18,6 +19,7 @@ from app.config import settings
 from app.image_utils import image_api_response_to_data_url
 from app.chroma_store import recall_block as chroma_recall_block, save_message as chroma_save_message
 from app.gena_features import (
+    public_static_url,
     should_stream_deep_gena,
     should_stream_image_gena,
     should_stream_presentation,
@@ -25,6 +27,7 @@ from app.gena_features import (
     stream_image_markdown,
     stream_presentation_pptx,
 )
+from app.music_demo import build_mp3_from_prompt, melody_notes_from_llm
 from app.memory_context import (
     digest_turn_to_facts,
     extract_explicit_remember,
@@ -35,7 +38,9 @@ from app.mws_client import MWSClient
 from app.rag_store import RAGStore, extract_embeddable_documents
 from app.router_logic import (
     IMAGE_GEN_RE,
+    MUSIC_GEN_RE,
     apply_manual_route,
+    gena_chat_target,
     inject_router_debug,
     last_user_message,
     normalize_requested_model,
@@ -206,6 +211,7 @@ app = FastAPI(title="GPTHub Gateway", version="1.0.0")
 _static_root = settings.data_dir / "static"
 _static_root.mkdir(parents=True, exist_ok=True)
 (_static_root / "presentations").mkdir(parents=True, exist_ok=True)
+(_static_root / "music").mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(_static_root)), name="static")
 
 _models_cache: dict[str, Any] = {"t": 0.0, "data": None}
@@ -384,6 +390,56 @@ def _inject_system(messages: list[dict[str, Any]], extra: str) -> list[dict[str,
     return ms
 
 
+async def maybe_music_demo_chat(
+    request: Request,
+    messages: list[dict[str, Any]],
+) -> Optional[dict[str, Any]]:
+    """Демо MP3: синус по нотам (+ опционально JSON нот от LLM)."""
+    lu = last_user_message(messages)
+    text = _content_to_text(lu.get("content") if lu else None)
+    if not text or not MUSIC_GEN_RE.search(text):
+        return None
+    if message_has_image(messages) or message_has_audio(messages):
+        return None
+    available = await get_available_model_ids()
+    mid = gena_chat_target()
+    if mid not in available:
+        mid = (
+            settings.default_llm
+            if settings.default_llm in available
+            else next(iter(sorted(available - {settings.auto_model_id})), settings.default_llm)
+        )
+    llm_notes = await melody_notes_from_llm(_client, text, mid)
+    try:
+        mp3 = build_mp3_from_prompt(text, llm_notes)
+    except Exception as e:
+        logger.warning("music demo build failed: %s", e)
+        return None
+    music_dir = settings.data_dir / "static" / "music"
+    music_dir.mkdir(parents=True, exist_ok=True)
+    fname = f"demo_{uuid.uuid4().hex[:12]}.mp3"
+    (music_dir / fname).write_bytes(mp3)
+    url = public_static_url(request, f"static/music/{fname}")
+    content = (
+        "Демо-мелодия (простой синтез по нотам, не студийный саундтрек):\n\n"
+        f"[Скачать MP3]({url})\n\n"
+    )
+    return {
+        "id": "chatcmpl-gpthub-music",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": mid,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }
+
+
 async def maybe_image_generation_chat(
     messages: list[dict[str, Any]],
     route_note: str,
@@ -485,6 +541,9 @@ async def chat_completions(request: Request) -> Response:
             )
 
     if not stream:
+        music_early = await maybe_music_demo_chat(request, messages)
+        if music_early:
+            return JSONResponse(music_early)
         img_early = await maybe_image_generation_chat(messages, "")
         if img_early:
             return JSONResponse(img_early)
