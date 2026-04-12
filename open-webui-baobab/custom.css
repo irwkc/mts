@@ -1,25 +1,19 @@
 /*
- * BAOBAB productions — тёмный фиолетовый фон, белый текст, жёлтый акцент.
- * Не трогаем шкалу gray-* фиолетовыми значениями (иначе текст сливается с фоном).
+ * BAOBAB productions — тёмно-фиолетовый фон (без жёлтых акцентов), белый текст.
  */
 
 :root {
-  --baobab-bg: #0a0610;
-  --baobab-surface: #140a1c;
-  --baobab-text: #ffffff;
-  --baobab-text-muted: #e4e4e7;
-  --baobab-yellow: #facc15;
-  --baobab-yellow-hover: #fde047;
-  --baobab-yellow-muted: #ca8a04;
-  --baobab-border: rgba(250, 204, 21, 0.45);
+  --baobab-bg: #140a1f;
+  --baobab-border: rgba(167, 139, 250, 0.35);
+  --baobab-muted-purple: #c4b5fd;
 }
 
 html.dark body {
   background-color: var(--baobab-bg) !important;
-  color: var(--baobab-text) !important;
+  color: #ffffff !important;
 }
 
-/* ---------- Splash: белая надпись строго по центру экрана ---------- */
+/* Splash: ровно тот же тёмно-фиолетовый фон, надпись без градиента */
 #splash-screen {
   position: fixed !important;
   inset: 0 !important;
@@ -28,7 +22,7 @@ html.dark body {
   justify-content: center !important;
   min-height: 100vh !important;
   width: 100% !important;
-  background: radial-gradient(ellipse 70% 55% at 50% 45%, #2a1a45 0%, var(--baobab-bg) 70%) !important;
+  background: var(--baobab-bg) !important;
 }
 
 #splash-screen #logo {
@@ -47,13 +41,12 @@ html.dark body {
   color: #ffffff !important;
   text-align: center;
   font-family: ui-sans-serif, system-ui, sans-serif;
-  text-shadow: 0 0 32px rgba(250, 204, 21, 0.25);
   margin: 0 !important;
   padding: 0 1rem;
   width: min(90vw, 28rem);
 }
 
-/* ---------- Типографика: белый / светло-серый текст в интерфейсе ---------- */
+/* Типографика */
 html.dark {
   --app-text: #ffffff;
   --app-text-muted: #d4d4d8;
@@ -69,7 +62,6 @@ html.dark label {
   color: #ffffff !important;
 }
 
-/* Сообщения чата и markdown */
 html.dark .prose,
 html.dark .prose-invert,
 html.dark [class*="markdown"],
@@ -90,11 +82,10 @@ html.dark .prose pre {
 html.dark pre,
 html.dark code {
   background: rgba(0, 0, 0, 0.35) !important;
-  color: #fef08a !important;
-  border: 1px solid rgba(250, 204, 21, 0.25) !important;
+  color: #e9d5ff !important;
+  border: 1px solid var(--baobab-border) !important;
 }
 
-/* Утилиты Tailwind «приглушённый текст» — не фиолетовый на фиолетовом */
 html.dark .text-gray-300,
 html.dark .text-gray-400,
 html.dark .text-gray-500,
@@ -107,7 +98,7 @@ html.dark .text-gray-800 {
   color: #fafafa !important;
 }
 
-/* ---------- Форма входа / регистрации ---------- */
+/* Формы входа */
 html.dark input[type="email"],
 html.dark input[type="password"],
 html.dark input[type="text"],
@@ -117,7 +108,7 @@ html.dark select {
   background-color: rgba(255, 255, 255, 0.06) !important;
   color: #ffffff !important;
   border: 1px solid var(--baobab-border) !important;
-  caret-color: var(--baobab-yellow) !important;
+  caret-color: #e9d5ff !important;
 }
 
 html.dark input::placeholder,
@@ -130,8 +121,8 @@ html.dark input:focus,
 html.dark textarea:focus,
 html.dark select:focus {
   outline: none !important;
-  border-color: var(--baobab-yellow) !important;
-  box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.25) !important;
+  border-color: rgba(167, 139, 250, 0.75) !important;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.22) !important;
 }
 
 html.dark form label,
@@ -139,7 +130,6 @@ html.dark label {
   color: #fafafa !important;
 }
 
-/* Карточки модальных окон авторизации */
 html.dark [role="dialog"],
 html.dark .modal,
 html.dark .bg-white\/5,
@@ -147,11 +137,11 @@ html.dark .bg-gray-850 {
   color: #ffffff !important;
 }
 
-/* ---------- Сайдбар ---------- */
+/* Сайдбар — только тёмно-фиолетовый фон */
 aside.flex.flex-col,
 aside[class*="sidebar"] {
-  background: linear-gradient(180deg, #160d22 0%, var(--baobab-bg) 100%) !important;
-  border-color: rgba(250, 204, 21, 0.2) !important;
+  background: var(--baobab-bg) !important;
+  border-color: var(--baobab-border) !important;
   color: #ffffff !important;
 }
 
@@ -181,33 +171,32 @@ aside nav a[href="/"]::after {
   display: block;
   max-width: 11rem;
   white-space: normal;
-  border-left: 3px solid var(--baobab-yellow);
+  border-left: 3px solid rgba(167, 139, 250, 0.55);
   padding-left: 0.5rem;
 }
 
-/* ---------- Основная область ---------- */
 main.flex,
 div.flex.min-w-full.flex-col {
   background-color: var(--baobab-bg) !important;
   color: #ffffff !important;
 }
 
-/* Ссылки — жёлтый */
+/* Ссылки — светло-фиолетовый, не жёлтый */
 html.dark a[href]:not([class*="button"]):not([role="menuitem"]) {
-  color: var(--baobab-yellow) !important;
+  color: var(--baobab-muted-purple) !important;
 }
 
 html.dark a[href]:hover {
-  color: var(--baobab-yellow-hover) !important;
+  color: #e9d5ff !important;
 }
 
-/* Кнопки: жёлтый акцент */
+/* Кнопки — фиолетовые, без жёлтого */
 html.dark button[type="submit"],
 html.dark button[aria-label="Send message"],
 #send-message-button,
 html.dark .primary {
-  background: linear-gradient(180deg, var(--baobab-yellow) 0%, var(--baobab-yellow-muted) 100%) !important;
-  color: #171717 !important;
+  background: linear-gradient(180deg, #6d28d9 0%, #5b21b6 100%) !important;
+  color: #fafafa !important;
   border: none !important;
   font-weight: 600 !important;
 }
@@ -215,20 +204,18 @@ html.dark .primary {
 html.dark button[type="submit"]:hover,
 html.dark button[aria-label="Send message"]:hover,
 #send-message-button:hover {
-  filter: brightness(1.05);
+  filter: brightness(1.08);
 }
 
-/* Кнопки на формах входа — светлая обводка */
 html.dark form[action*="signin"] button[type="button"],
 html.dark form[action*="signup"] button[type="button"],
 html.dark [class*="auth"] button[type="button"] {
   color: #fafafa !important;
-  border: 1px solid rgba(250, 204, 21, 0.35) !important;
+  border: 1px solid var(--baobab-border) !important;
 }
 
-/* Скроллбары */
 ::-webkit-scrollbar-thumb {
-  background: rgba(250, 204, 21, 0.35) !important;
+  background: rgba(124, 58, 237, 0.45) !important;
 }
 
 ::-webkit-scrollbar-track {
