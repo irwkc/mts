@@ -41,6 +41,10 @@ services:
       - "127.0.0.1:3000:8080"
     environment:
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-gpthub-change-me-in-production}
+      # Админ при пустой БД (только первый старт); иначе залогиньтесь существующим юзером
+      WEBUI_ADMIN_EMAIL: ${WEBUI_ADMIN_EMAIL:-test@mail.ru}
+      WEBUI_ADMIN_PASSWORD: ${WEBUI_ADMIN_PASSWORD:-123}
+      WEBUI_ADMIN_NAME: ${WEBUI_ADMIN_NAME:-Test}
       ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
       # Иначе UI ждёт Ollama и показывает «No models» без подключения провайдера
       ENABLE_OLLAMA_API: "false"
