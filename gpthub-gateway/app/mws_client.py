@@ -1,6 +1,7 @@
+import asyncio
 import json
 import logging
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 
@@ -8,11 +9,15 @@ from app.config import settings
 
 logger = logging.getLogger("gpthub.mws")
 
+_RETRYABLE_STATUS = frozenset({429, 502, 503, 504})
+
 
 class MWSClient:
     def __init__(self) -> None:
         self.base = settings.mws_api_base.rstrip("/")
         self.key = settings.mws_api_key
+        self._retries = max(0, int(settings.mws_http_retries))
+        self._backoff = float(settings.mws_retry_backoff_sec)
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -20,21 +25,61 @@ class MWSClient:
             "Content-Type": "application/json",
         }
 
+    def _should_retry(self, exc: BaseException) -> bool:
+        if isinstance(exc, httpx.TimeoutException):
+            return True
+        if isinstance(exc, httpx.HTTPStatusError):
+            return exc.response.status_code in _RETRYABLE_STATUS
+        return False
+
     async def get_models(self) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.get(f"{self.base}/models", headers=self._headers())
-            r.raise_for_status()
-            return r.json()
+        last: Optional[BaseException] = None
+        for attempt in range(self._retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    r = await client.get(f"{self.base}/models", headers=self._headers())
+                    r.raise_for_status()
+                    return r.json()
+            except Exception as e:
+                last = e
+                if not self._should_retry(e) or attempt >= self._retries:
+                    raise
+                logger.warning(
+                    "get_models retry %s/%s: %s",
+                    attempt + 1,
+                    self._retries + 1,
+                    e,
+                )
+                await asyncio.sleep(self._backoff * (attempt + 1))
+        assert last is not None
+        raise last
 
     async def post_json(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            r = await client.post(
-                f"{self.base}{path}",
-                headers=self._headers(),
-                content=json.dumps(body),
-            )
-            r.raise_for_status()
-            return r.json()
+        last: Optional[BaseException] = None
+        for attempt in range(self._retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=300.0) as client:
+                    r = await client.post(
+                        f"{self.base}{path}",
+                        headers=self._headers(),
+                        content=json.dumps(body),
+                    )
+                    r.raise_for_status()
+                    return r.json()
+            except Exception as e:
+                last = e
+                if not self._should_retry(e) or attempt >= self._retries:
+                    raise
+                logger.warning(
+                    "post_json %s retry %s/%s: %s",
+                    path,
+                    attempt + 1,
+                    self._retries + 1,
+                    e,
+                )
+                await asyncio.sleep(self._backoff * (attempt + 1))
+        assert last is not None
+        raise last
 
     async def embeddings(self, texts: list[str]) -> list[list[float]]:
         data = await self.post_json(

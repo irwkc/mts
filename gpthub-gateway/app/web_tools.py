@@ -1,5 +1,7 @@
 import logging
 import re
+import time
+from threading import Lock
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -7,7 +9,12 @@ import httpx
 import trafilatura
 from duckduckgo_search import DDGS
 
+from app.config import settings
+
 logger = logging.getLogger("gpthub.web_tools")
+
+_web_search_cache: dict[str, tuple[float, str]] = {}
+_web_search_lock = Lock()
 
 
 URL_RE = re.compile(r"https?://[^\s)>\]}]+", re.I)
@@ -80,6 +87,14 @@ async def fetch_url_text(url: str, max_chars: int = 12000) -> str:
 
 
 def web_search_ddg(query: str, max_results: int = 5) -> str:
+    key = f"{(query or '').strip()[:800]}|{max_results}"
+    ttl = float(settings.web_search_cache_ttl_sec)
+    now = time.time()
+    with _web_search_lock:
+        hit = _web_search_cache.get(key)
+        if hit is not None and now - hit[0] < ttl:
+            return hit[1]
+
     lines: list[str] = []
     try:
         with DDGS() as ddgs:
@@ -91,8 +106,17 @@ def web_search_ddg(query: str, max_results: int = 5) -> str:
     except Exception as e:
         return f"(ошибка поиска: {e})"
     if not lines:
-        return "(пустой результат поиска)"
-    return "Результаты веб-поиска:\n" + "\n\n".join(lines)
+        out = "(пустой результат поиска)"
+    else:
+        out = "Результаты веб-поиска:\n" + "\n\n".join(lines)
+
+    with _web_search_lock:
+        _web_search_cache[key] = (now, out)
+        max_e = int(settings.web_search_cache_max_entries)
+        while len(_web_search_cache) > max_e and _web_search_cache:
+            oldest = min(_web_search_cache.keys(), key=lambda k: _web_search_cache[k][0])
+            del _web_search_cache[oldest]
+    return out
 
 
 def should_run_deep_research(last_user_text: str) -> bool:

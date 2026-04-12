@@ -210,6 +210,36 @@ logger = logging.getLogger("gpthub")
 
 app = FastAPI(title="GPTHub Gateway", version="1.0.0")
 
+
+@app.middleware("http")
+async def add_request_id_and_timing(request: Request, call_next):
+    rid = request.headers.get("x-request-id") or str(uuid.uuid4())
+    request.state.request_id = rid
+    t0 = time.time()
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
+    logger.info(
+        "http %s %s %.3fs rid=%s",
+        request.method,
+        request.url.path,
+        time.time() - t0,
+        str(rid)[:12],
+    )
+    return response
+
+
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
+def _sse_headers(request: Request) -> dict[str, str]:
+    rid = getattr(request.state, "request_id", None) or str(uuid.uuid4())
+    return {**_SSE_HEADERS, "X-Request-ID": str(rid)}
+
+
 _static_root = settings.data_dir / "static"
 _static_root.mkdir(parents=True, exist_ok=True)
 (_static_root / "presentations").mkdir(parents=True, exist_ok=True)
@@ -424,7 +454,7 @@ async def maybe_music_demo_chat(
     (music_dir / fname).write_bytes(mp3)
     url = public_static_url(request, f"static/music/{fname}")
     content = (
-        "Демо-мелодия (простой синтез по нотам, не студийный саундтрек):\n\n"
+        "Демо-мелодия под песню (~1–1.5 мин, простой синус по нотам, не студийный трек):\n\n"
         f"[Скачать MP3]({url})\n\n"
     )
     return {
@@ -499,16 +529,26 @@ async def maybe_image_generation_chat(
     }
 
 
-_SSE_HEADERS = {
-    "Cache-Control": "no-cache",
-    "Connection": "keep-alive",
-    "X-Accel-Buffering": "no",
-}
-
-
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request) -> Response:
     body = await request.json()
+    try:
+        plen = len(json.dumps(body, ensure_ascii=False))
+    except Exception:
+        plen = 0
+    if plen > settings.max_chat_payload_chars:
+        return JSONResponse(
+            {
+                "error": {
+                    "message": (
+                        f"Слишком большой запрос (~{plen} символов). "
+                        f"Лимит: {settings.max_chat_payload_chars} (GPTHUB_MAX_CHAT_PAYLOAD_CHARS)."
+                    ),
+                    "type": "payload_too_large",
+                }
+            },
+            status_code=413,
+        )
     messages: list[dict[str, Any]] = list(body.get("messages") or [])
     messages = await maybe_compress_messages_for_context(_client, messages)
     strip_gena_assistant_markers(messages)
@@ -527,30 +567,37 @@ async def chat_completions(request: Request) -> Response:
     # Быстрые перехваты gena (только авто-модель): стримы — до роутера; картинка JSON — до роутера.
     if auto_mode and last_text and stream:
         if should_stream_presentation(last_text, stream):
+            logger.info(
+                "gena intercept=presentation stream=1 rid=%s",
+                getattr(request.state, "request_id", "")[:12],
+            )
             return StreamingResponse(
                 stream_presentation_pptx(request, _client, last_text, available),
                 media_type="text/event-stream",
-                headers=dict(_SSE_HEADERS),
+                headers=_sse_headers(request),
             )
         if should_stream_deep_gena(last_text, stream):
+            logger.info("gena intercept=deep_research stream=1")
             return StreamingResponse(
                 stream_deep_research(_client, last_text, available),
                 media_type="text/event-stream",
-                headers=dict(_SSE_HEADERS),
+                headers=_sse_headers(request),
             )
         if should_stream_music_gena(
             last_text, stream, message_has_image(messages), message_has_audio(messages)
         ):
+            logger.info("gena intercept=music stream=1")
             return StreamingResponse(
                 stream_music_demo(request, _client, last_text, available),
                 media_type="text/event-stream",
-                headers=dict(_SSE_HEADERS),
+                headers=_sse_headers(request),
             )
         if should_stream_image_gena(last_text, stream, message_has_image(messages)):
+            logger.info("gena intercept=image stream=1")
             return StreamingResponse(
                 stream_image_markdown(request, _client, last_text, available),
                 media_type="text/event-stream",
-                headers=dict(_SSE_HEADERS),
+                headers=_sse_headers(request),
             )
 
     if not stream:
@@ -710,5 +757,5 @@ async def chat_completions(request: Request) -> Response:
     return StreamingResponse(
         gen(),
         media_type="text/event-stream",
-        headers=dict(_SSE_HEADERS),
+        headers=_sse_headers(request),
     )

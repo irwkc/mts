@@ -21,7 +21,6 @@ from app.presentation_pptx import (
     resolve_slide_images,
     write_presentation_sidecar,
 )
-from app.web_tools import extract_urls, fetch_url_text, web_search_ddg
 from app.mws_client import MWSClient
 from app.router_logic import IMAGE_GEN_RE, MUSIC_GEN_RE, PRESENTATION_RE, gena_chat_target
 from app.web_tools import (
@@ -29,9 +28,27 @@ from app.web_tools import (
     extract_urls,
     fetch_url_text,
     should_run_deep_research,
+    web_search_ddg,
 )
 
 logger = logging.getLogger("gpthub.gena")
+
+
+def friendly_stream_error(exc: BaseException) -> str:
+    """Короткое сообщение пользователю при сбое перехвата gena (стрим)."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code == 429:
+            return "Сервис моделей временно перегружен (лимит запросов). Попробуйте позже."
+        if code >= 500:
+            return "Временная ошибка сервера моделей (MWS). Повторите запрос."
+        return f"Ошибка API моделей (код {code})."
+    if isinstance(exc, httpx.TimeoutException):
+        return "Превышено время ожидания ответа от моделей."
+    if isinstance(exc, json.JSONDecodeError):
+        return "Некорректный ответ модели (JSON). Упростите или сократите запрос."
+    s = str(exc).strip()
+    return (s[:500] if s else "Неизвестная ошибка.")
 
 
 def sse_delta(content: str) -> str:
@@ -82,6 +99,9 @@ async def stream_presentation_pptx(
     prompt: str,
     available_ids: set[str],
 ) -> AsyncGenerator[str, None]:
+    yield sse_delta(
+        "**[gena · презентация]** — веб-поиск, структура слайдов, картинки (веб/нейро), PPTX + JSON.\n\n"
+    )
     yield sse_delta("*(Презентация: ищу материалы в интернете…)*\n\n")
     research = web_search_ddg((prompt or "")[:600], max_results=6)
     page_bits: list[str] = []
@@ -138,7 +158,8 @@ async def stream_presentation_pptx(
         )
         raw = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
         deck_title, slides_data = parse_presentation_json(raw)
-        slides_data = [s for s in slides_data if isinstance(s, dict)][:10]
+        max_slides = max(1, int(settings.gena_max_presentation_slides))
+        slides_data = [s for s in slides_data if isinstance(s, dict)][:max_slides]
         if len(slides_data) < 1:
             raise ValueError("no slides in JSON")
 
@@ -180,7 +201,7 @@ async def stream_presentation_pptx(
         )
     except Exception as e:
         logger.exception("presentation")
-        yield sse_delta(f"Ошибка презентации: {e}\n\n")
+        yield sse_delta(f"**Ошибка презентации.** {friendly_stream_error(e)}\n\n")
     yield "data: [DONE]\n\n"
 
 
@@ -193,6 +214,7 @@ async def stream_music_demo(
     """SSE: статусы + ссылка на демо MP3 (как у картинки, но для музыки)."""
     from app.music_demo import build_mp3_from_prompt, melody_notes_from_llm
 
+    yield sse_delta("**[gena · музыка]** — демо-мелодия (~1–1.5 мин), синус по нотам.\n\n")
     yield sse_delta("*(Демо-мелодия: подбираю ноты…)*\n\n")
     mid = gena_chat_target()
     if mid not in available_ids:
@@ -206,7 +228,7 @@ async def stream_music_demo(
         mp3 = build_mp3_from_prompt(prompt, llm_notes)
     except Exception as e:
         logger.exception("music demo stream")
-        yield sse_delta(f"Не удалось сгенерировать MP3: {e}\n\n")
+        yield sse_delta(f"**Не удалось сгенерировать MP3.** {friendly_stream_error(e)}\n\n")
         yield "data: [DONE]\n\n"
         return
 
@@ -228,6 +250,7 @@ async def stream_image_markdown(
     prompt: str,
     available_ids: set[str],
 ) -> AsyncGenerator[str, None]:
+    yield sse_delta("**[gena · изображение]** — нейро-генерация по запросу.\n\n")
     yield sse_delta("*(Генерация изображения…)*\n\n")
     model_id = settings.image_gen_model
     if model_id not in available_ids:
@@ -284,7 +307,8 @@ async def stream_image_markdown(
         else:
             yield sse_delta("Не удалось получить ссылку на изображение.\n\n")
     except Exception as e:
-        yield sse_delta(f"Ошибка генерации: {e}\n\n")
+        logger.exception("stream_image")
+        yield sse_delta(f"**Ошибка генерации изображения.** {friendly_stream_error(e)}\n\n")
     yield "data: [DONE]\n\n"
 
 
@@ -293,6 +317,7 @@ async def stream_deep_research(
     user_prompt: str,
     available_ids: set[str],
 ) -> AsyncGenerator[str, None]:
+    yield sse_delta("**[gena · Deep Research]** — веб-поиск + страницы + отчёт.\n\n")
     yield sse_delta("*(Deep Research: собираю источники…)*\n\n")
     block = deep_research_ddg(user_prompt)
     urls = extract_urls(block)[:3]
@@ -331,7 +356,9 @@ async def stream_deep_research(
         ) as resp:
             if resp.status_code >= 400:
                 err = await resp.aread()
-                yield sse_delta(f"Ошибка API: {err.decode()[:500]}\n\n")
+                yield sse_delta(
+                    f"**Ошибка MWS** (код {resp.status_code}): {err.decode()[:400]}\n\n"
+                )
                 yield "data: [DONE]\n\n"
                 return
             async for line in resp.aiter_lines():

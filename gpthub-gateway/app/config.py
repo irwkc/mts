@@ -115,6 +115,34 @@ class Settings(BaseSettings):
     chroma_host: str = Field(default="", validation_alias="CHROMA_HOST")
     chroma_port: int = Field(default=8000, validation_alias="CHROMA_PORT")
 
+    # Надёжность / производительность (не «безопасность»)
+    mws_http_retries: int = Field(
+        default=2,
+        validation_alias="GPTHUB_MWS_HTTP_RETRIES",
+        description="Повторы при 502/503/504/429 и таймауте (итого попыток = 1 + retries)",
+    )
+    mws_retry_backoff_sec: float = Field(
+        default=1.0,
+        validation_alias="GPTHUB_MWS_RETRY_BACKOFF_SEC",
+    )
+    web_search_cache_ttl_sec: float = Field(
+        default=120.0,
+        validation_alias="GPTHUB_WEB_SEARCH_CACHE_TTL_SEC",
+    )
+    web_search_cache_max_entries: int = Field(
+        default=64,
+        validation_alias="GPTHUB_WEB_SEARCH_CACHE_MAX_ENTRIES",
+    )
+    max_chat_payload_chars: int = Field(
+        default=500_000,
+        validation_alias="GPTHUB_MAX_CHAT_PAYLOAD_CHARS",
+        description="Лимит размера тела chat/completions (JSON), защита от случайно огромных запросов",
+    )
+    gena_max_presentation_slides: int = Field(
+        default=10,
+        validation_alias="GPTHUB_MAX_PRESENTATION_SLIDES",
+    )
+
     @field_validator("router_mode", mode="before")
     @classmethod
     def normalize_router_mode(cls, v: object) -> str:
