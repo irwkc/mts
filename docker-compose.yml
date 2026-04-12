@@ -16,7 +16,8 @@ services:
       GPTHUB_ROUTER_USE_LLM: ${GPTHUB_ROUTER_USE_LLM:-true}
       GPTHUB_ROUTER_LLM_MODEL: ${GPTHUB_ROUTER_LLM_MODEL:-mts-anya}
       GPTHUB_ROUTER_RULES_FALLBACK: ${GPTHUB_ROUTER_RULES_FALLBACK:-true}
-      GPTHUB_AUTO_MODEL_DISPLAY_NAME: ${GPTHUB_AUTO_MODEL_DISPLAY_NAME:-"smart BAOBAB"}
+      # Без кавычек внутри ${...:-...} — иначе в UI попадут литеральные "..."
+      GPTHUB_AUTO_MODEL_DISPLAY_NAME: "${GPTHUB_AUTO_MODEL_DISPLAY_NAME:-smart BAOBAB}"
     volumes:
       - gpthub-data:/data
     ports:
@@ -49,7 +50,7 @@ services:
       OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
       OPENAI_API_KEYS: ${MWS_API_KEY:?set MWS_API_KEY in .env}
       WEBUI_URL: ${WEBUI_URL:-http://localhost:3000}
-      WEBUI_NAME: ${WEBUI_NAME:-"BAOBAB productions"}
+      WEBUI_NAME: "${WEBUI_NAME:-BAOBAB productions}"
       # Модель по умолчанию в UI — авто-роутер (см. также нормализацию provider/id в шлюзе)
       DEFAULT_MODELS: '["gpthub-auto"]'
       # Голос / диктофон: STT и TTS через тот же шлюз → MWS

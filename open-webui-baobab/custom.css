@@ -13,37 +13,50 @@ html.dark body {
   color: #ffffff !important;
 }
 
-/* Splash: ровно тот же тёмно-фиолетовый фон, надпись без градиента */
+/* Splash: тёмно-фиолетовый фон; сверху PNG, под ним надпись BAOBAB productions */
 #splash-screen {
   position: fixed !important;
   inset: 0 !important;
   display: flex !important;
+  flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
+  gap: 1.25rem !important;
   min-height: 100vh !important;
   width: 100% !important;
   background: var(--baobab-bg) !important;
 }
 
+/* Inline-скрипт вставляет img#logo — скрываем, картинку показываем через ::before */
 #splash-screen #logo {
   display: none !important;
 }
 
+#splash-screen::before {
+  content: "";
+  display: block;
+  width: min(16rem, 48vw);
+  height: min(16rem, 48vw);
+  max-height: 42vh;
+  background: url("/static/baobab-splash.png") center / contain no-repeat;
+  flex-shrink: 0;
+}
+
 #splash-screen::after {
   content: "BAOBAB productions";
-  position: absolute !important;
-  top: 50% !important;
-  left: 50% !important;
-  transform: translate(-50%, -50%) !important;
-  font-size: clamp(1.25rem, 4vw, 1.85rem);
+  position: static !important;
+  transform: none !important;
+  top: auto !important;
+  left: auto !important;
+  font-size: clamp(1.1rem, 3vw, 1.65rem);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   color: #ffffff !important;
   text-align: center;
   font-family: ui-sans-serif, system-ui, sans-serif;
   margin: 0 !important;
   padding: 0 1rem;
-  width: min(90vw, 28rem);
+  max-width: min(90vw, 28rem);
 }
 
 /* Типографика */
@@ -181,12 +194,12 @@ div.flex.min-w-full.flex-col {
   color: #ffffff !important;
 }
 
-/* Ссылки — светло-фиолетовый, не жёлтый */
+/* Ссылки в контенте (не в меню — там ниже белые) */
 html.dark a[href]:not([class*="button"]):not([role="menuitem"]) {
   color: var(--baobab-muted-purple) !important;
 }
 
-html.dark a[href]:hover {
+html.dark a[href]:not([role="menuitem"]):hover {
   color: #e9d5ff !important;
 }
 
@@ -220,4 +233,55 @@ html.dark [class*="auth"] button[type="button"] {
 
 ::-webkit-scrollbar-track {
   background: rgba(10, 6, 16, 0.85) !important;
+}
+
+/* ---------- Единый тёмно-фиолетовый фон (убираем «серые» всплывашки) ---------- */
+html.dark [role="menu"],
+html.dark [data-radix-popper-content-wrapper] > div,
+html.dark [data-state="open"][class*="bg-gray"],
+html.dark .tippy-box,
+html.dark [data-tippy-root] .tippy-content {
+  background-color: #1a0f2e !important;
+  color: #ffffff !important;
+  border-color: var(--baobab-border) !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45) !important;
+}
+
+html.dark [role="menu"] *,
+html.dark [role="menuitem"],
+html.dark [role="menu"] a,
+html.dark [role="menu"] button,
+html.dark [role="menu"] span {
+  color: #ffffff !important;
+}
+
+html.dark [role="menu"] svg {
+  color: #ffffff !important;
+  opacity: 0.95 !important;
+}
+
+html.dark [role="menuitem"]:hover,
+html.dark [role="menu"] button:hover {
+  background-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Панели и карточки в основной зоне — тот же ряд, не нейтральный серый */
+html.dark main [class*="bg-gray-9"],
+html.dark main [class*="bg-neutral-9"],
+html.dark [class*="rounded-2xl"][class*="bg-gray-8"],
+html.dark [class*="rounded-xl"][class*="shadow"][class*="bg-gray"] {
+  background-color: #1a0f2e !important;
+}
+
+html.dark header[class*="bg-gray"],
+html.dark div[class*="sticky"][class*="bg-gray"] {
+  background-color: rgba(20, 10, 31, 0.95) !important;
+  backdrop-filter: blur(8px);
+}
+
+/* Разделители в меню — фиолетовый оттенок, не чёрный */
+html.dark [role="separator"],
+html.dark hr,
+html.dark [role="menu"] [class*="border-gray"] {
+  border-color: var(--baobab-border) !important;
 }

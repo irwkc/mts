@@ -30,6 +30,14 @@ class Settings(BaseSettings):
         default="smart BAOBAB",
         validation_alias="GPTHUB_AUTO_MODEL_DISPLAY_NAME",
     )
+
+    @field_validator("auto_model_display_name", mode="after")
+    @classmethod
+    def strip_quotes_auto_model_display_name(cls, v: str) -> str:
+        s = (v or "").strip()
+        if len(s) >= 2 and s[0] in "\"'" and s[-1] == s[0]:
+            return s[1:-1].strip()
+        return s
     default_llm: str = "mts-anya"
     vision_model: str = "gpt-4o"
     image_gen_model: str = "qwen-image"
