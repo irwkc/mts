@@ -4,7 +4,7 @@
 # Вызывается из корня репозитория ~/mts.
 
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}") /.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONF_SRC="$ROOT/deploy/nginx-open-webui.conf"
 CONF_DST="/etc/nginx/sites-available/mts"
 MAP_SRC="$ROOT/deploy/nginx-websocket-map.conf"
