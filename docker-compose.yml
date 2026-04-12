@@ -42,7 +42,8 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
       interval: 15s
       timeout: 5s
-      retries: 5
+      retries: 8
+      start_period: 120s
 
   open-webui:
     image: ${OPENWEBUI_IMAGE:-ghcr.io/irwkc/mts-open-webui-baobab:latest}

@@ -40,6 +40,7 @@ from app.memory_context import (
 )
 from app.memory_store import MemoryStore
 from app.mws_client import MWSClient
+from app.presentation_api import router as presentation_api_router
 from app.rag_store import RAGStore, extract_embeddable_documents
 from app.router_logic import (
     IMAGE_GEN_RE,
