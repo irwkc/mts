@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     auto_model_id: str = "gpthub-auto"
     # Отображаемое имя авто-модели в UI (список моделей Open WebUI)
     auto_model_display_name: str = Field(
-        default="smart BAOBAB",
+        default="gena 2.0",
         validation_alias="GPTHUB_AUTO_MODEL_DISPLAY_NAME",
     )
 
@@ -98,6 +98,15 @@ class Settings(BaseSettings):
     gena_long_doc_word_threshold: int = Field(
         default=600,
         validation_alias="GPTHUB_GENA_LONG_DOC_WORDS",
+    )
+    # Подмешивается в system: кто такой ассистент (пусто — отключить)
+    gena_system_identity: str = Field(
+        default=(
+            "Идентичность: ты — gena 2.0, цифровой ассистент. "
+            "На вопросы «кто ты», «как тебя зовут», «представься» отвечай кратко: "
+            "ты gena (версия 2.0). Не выдумывай другое имя и не представляйся базовой моделью провайдера."
+        ),
+        validation_alias="GPTHUB_GENA_IDENTITY",
     )
 
     # Публичный URL шлюза для ссылок на /static/... (презентации). Пусто — берётся из заголовка запроса.

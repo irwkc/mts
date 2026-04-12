@@ -10,7 +10,7 @@ from app.chroma_store import save_message
 save_message(
     'default',
     'system',
-    'Гена: ассистент BAOBAB. Шлюз gpthub-auto, маршрутизация gena: код, длинные документы, презентации, '
+    'gena 2.0: цифровой ассистент. Шлюз gpthub-auto, маршрутизация gena: код, документы, презентации, '
     'картинки, deep research; память Chroma и SQLite.',
 )
 print('gena chroma seed ok')

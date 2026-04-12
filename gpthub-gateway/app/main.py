@@ -495,6 +495,10 @@ async def chat_completions(request: Request) -> Response:
 
     # Долгосрочная память + RAG scope
     extra_parts: list[str] = []
+    _gid = (settings.gena_system_identity or "").strip()
+    if _gid:
+        extra_parts.append(_gid)
+
     explicit_hint = extract_explicit_remember(last_text) if last_text else ""
     if explicit_hint:
         extra_parts.append(
