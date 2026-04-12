@@ -163,7 +163,13 @@ async def stream_image_markdown(
     try:
         img_resp = await client.post_json(
             "/images/generations",
-            {"model": model_id, "prompt": prompt[:4000], "n": 1, "size": "1024x1024"},
+            {
+                "model": model_id,
+                "prompt": prompt[:4000],
+                "n": 1,
+                "size": "1024x1024",
+                "response_format": "b64_json",  # сразу base64
+            },
         )
         url = await image_api_response_to_data_url(img_resp)
         if url:

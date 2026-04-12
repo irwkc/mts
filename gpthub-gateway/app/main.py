@@ -337,7 +337,7 @@ async def audio_speech(request: Request) -> Response:
 
 @app.post("/v1/audio/transcriptions")
 async def transcribe(request: Request) -> Response:
-    # multipart → MWS
+    # multipart → MWS; принудительно устанавливаем язык ru, если клиент не передал явно
     form = await request.form()
     files = {}
     data = {}
@@ -346,6 +346,10 @@ async def transcribe(request: Request) -> Response:
             files[k] = (getattr(v, "filename", None) or "audio", await v.read())
         else:
             data[k] = v
+    # Whisper без language автоопределяет язык, что приводит к ошибкам (напр. ru → pt).
+    # Добавляем language=ru по умолчанию.
+    if "language" not in data:
+        data["language"] = "ru"
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
             r = await client.post(
@@ -403,7 +407,13 @@ async def maybe_image_generation_chat(
                 model_id = c
                 break
     try:
-        img_body = {"model": model_id, "prompt": prompt[:4000], "n": 1, "size": "1024x1024"}
+        img_body = {
+            "model": model_id,
+            "prompt": prompt[:4000],
+            "n": 1,
+            "size": "1024x1024",
+            "response_format": "b64_json",  # сразу base64, не URL
+        }
         img_resp = await _client.post_json("/images/generations", img_body)
     except Exception as e:
         logger.warning("image gen failed: %s", e)
