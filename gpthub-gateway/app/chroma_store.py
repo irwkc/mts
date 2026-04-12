@@ -1,5 +1,6 @@
 """
 Опциональная память ChromaDB (gena/router/memory.py): семантический recall + сохранение реплик.
+Retry при подключении — Chroma может стартовать позже шлюза.
 """
 
 from __future__ import annotations
@@ -14,23 +15,41 @@ from app.config import settings
 logger = logging.getLogger("gpthub.chroma")
 
 _client: Optional[object] = None
+_client_failed_until: float = 0.0  # временная блокировка после ошибок подключения
+_RETRY_COOLDOWN = 30.0  # секунд ждать между попытками переподключения
 
 
 def _get_client():
-    global _client
+    global _client, _client_failed_until
     host = (settings.chroma_host or "").strip()
     if not host:
         return None
-    if _client is None:
+    now = time.monotonic()
+    if _client is not None:
+        return _client
+    if now < _client_failed_until:
+        return None  # ещё в cooldown после последней ошибки
+    try:
         import chromadb
         from chromadb.config import Settings as ChromaSettings
 
-        _client = chromadb.HttpClient(
+        cl = chromadb.HttpClient(
             host=host,
             port=int(settings.chroma_port),
             settings=ChromaSettings(anonymized_telemetry=False),
         )
-    return _client
+        # Проверяем соединение
+        cl.heartbeat()
+        _client = cl
+        logger.info("ChromaDB connected: %s:%d", host, settings.chroma_port)
+        return _client
+    except Exception as e:
+        _client_failed_until = now + _RETRY_COOLDOWN
+        logger.warning(
+            "ChromaDB not available (%s:%d): %s — retry in %.0fs",
+            host, settings.chroma_port, e, _RETRY_COOLDOWN,
+        )
+        return None
 
 
 def _collection_name(user_id: str) -> str:
@@ -63,6 +82,9 @@ def recall_block(user_id: str, query: str, n_results: int = 5) -> str:
         return "Chroma (долгая память, gena-стиль):\n" + "\n".join(f"- {x}" for x in lines)
     except Exception as e:
         logger.warning("chroma recall: %s", e)
+        # Сбрасываем клиент чтобы переподключиться в следующий раз
+        global _client
+        _client = None
         return ""
 
 
@@ -83,3 +105,5 @@ def save_message(user_id: str, role: str, content: str) -> None:
         )
     except Exception as e:
         logger.warning("chroma save: %s", e)
+        global _client
+        _client = None

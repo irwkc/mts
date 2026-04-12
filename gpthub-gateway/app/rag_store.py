@@ -1,8 +1,11 @@
 """
 Локальный RAG по загруженным фрагментам текста (сессия = user + chat key).
+Поддерживает PDF через pypdf — Open WebUI может прислать paste из PDF.
 """
 
+import io
 import json
+import logging
 import sqlite3
 import uuid
 from typing import Optional
@@ -11,6 +14,8 @@ import numpy as np
 
 from app.config import settings
 from app.mws_client import MWSClient
+
+logger = logging.getLogger("gpthub.rag")
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -35,6 +40,23 @@ def chunk_text(text: str) -> list[str]:
         chunks.append(text[i : i + size])
         i += max(size - ov, 1)
     return chunks
+
+
+def extract_text_from_pdf_bytes(data: bytes) -> str:
+    """Извлечь текст из PDF-байт через pypdf."""
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(data))
+        pages: list[str] = []
+        for page in reader.pages:
+            t = page.extract_text() or ""
+            if t.strip():
+                pages.append(t.strip())
+        return "\n\n".join(pages)
+    except Exception as e:
+        logger.warning("PDF extraction failed: %s", e)
+        return ""
 
 
 class RAGStore:
@@ -121,11 +143,27 @@ class RAGStore:
 
 def extract_embeddable_documents(last_user_text: str) -> list[str]:
     """
-    Выделяет длинные вставки текста как кандидата на индексацию (имитация «файла»).
+    Выделяет длинные вставки текста как кандидата на индексацию.
+    Поддерживает PDF-контент (base64 или binary paste с маркером %PDF).
     """
-    if len(last_user_text) < 800:
+    if not last_user_text:
         return []
-    return [last_user_text]
+
+    # Попытка распознать PDF paste
+    if last_user_text.lstrip().startswith("%PDF"):
+        try:
+            pdf_text = extract_text_from_pdf_bytes(last_user_text.encode("latin-1", errors="replace"))
+            if pdf_text.strip():
+                logger.info("RAG: extracted PDF paste, %d chars", len(pdf_text))
+                return [pdf_text]
+        except Exception:
+            pass
+
+    # Обычный длинный текст
+    if len(last_user_text) >= 800:
+        return [last_user_text]
+
+    return []
 
 
 def looks_like_pdf_paste(text: str) -> bool:

@@ -17,6 +17,28 @@ DEEP_RESEARCH_RE = re.compile(
     re.I,
 )
 
+# Расширенный список триггеров веб-поиска
+_WEB_SEARCH_TRIGGERS = re.compile(
+    r"("
+    # Явные команды поиска
+    r"найди\s+в\s+интернет|поиск\s+в\s+сети|web\s+search|google\s+this|search\s+the\s+web|"
+    r"погугли|загугли|поищи\s+в\s+(сети|интернет)|"
+    # Запросы про актуальность и новости
+    r"что\s+нов(ого|ое|ые)|актуальн(ый|ые|ая|ое|о)\s+|последн(ие|ий|яя|ее)\s+(новости|данные|события|инфо)|"
+    r"свежи(е|й)\s+(новости|данные|события)|"
+    # Запросы на поиск информации
+    r"найди\s+(информаци|данные|новости|факты|статистику)|"
+    r"найди\s+(информацию|данные|новости|факты)\s+(о|про|по)|"
+    # Фактические запросы
+    r"кто\s+такой\s+\w|что\s+такое\s+\w{4}|сколько\s+стоит|"
+    r"когда\s+(вышел|был|произошло|случилось)|"
+    # Английские варианты
+    r"look\s+up|find\s+(info|information|news)\s+(about|on)|latest\s+(news|info|data)|"
+    r"current\s+(news|events|situation)|what'?s\s+(new|happening)"
+    r")",
+    re.I,
+)
+
 
 def extract_urls(text: str, limit: int = 3) -> list[str]:
     found = URL_RE.findall(text or "")
@@ -92,26 +114,33 @@ def deep_research_ddg(topic: str, subqueries: int = 3) -> str:
 
 
 def should_run_web_search(last_user_text: str) -> bool:
-    t = (last_user_text or "").lower()
+    t = (last_user_text or "")
     if should_run_deep_research(last_user_text):
         return False
-    if any(
-        k in t
-        for k in (
-            "найди в интернет",
-            "поиск в сети",
-            "web search",
-            "search the web",
-            "погугли",
-        )
-    ):
-        return True
-    return False
+    return bool(_WEB_SEARCH_TRIGGERS.search(t))
 
 
 def search_query_from_text(last_user_text: str) -> str:
     t = (last_user_text or "").strip()
-    for prefix in ("найди в интернете", "найди в интернет", "web search:", "search the web:"):
+    # Убираем префикс-команду поиска, оставляем суть запроса
+    for prefix in (
+        "найди в интернете",
+        "найди в интернет",
+        "поищи в интернете",
+        "поищи в интернет",
+        "поищи в сети",
+        "погугли",
+        "загугли",
+        "web search:",
+        "search the web:",
+        "google this:",
+        "найди информацию о",
+        "найди информацию про",
+        "найди данные о",
+        "найди данные про",
+        "найди новости о",
+        "найди новости про",
+    ):
         if t.lower().startswith(prefix):
-            return t[len(prefix) :].strip()
+            return t[len(prefix):].strip()
     return t[:500]

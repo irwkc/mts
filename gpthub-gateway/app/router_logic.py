@@ -43,11 +43,17 @@ _DEEP_RESEARCH_HINT = re.compile(
 
 # --- Режим «gena» (из gena/router/router.py): эвристики без отдельного LLM-роутера ---
 _GENA_CODE_KEYWORDS = re.compile(
-    r"(код|функц|алгоритм|скрипт|програм|python|js|javascript|sql|ошибк|баг|debug|class|def |import |html|json|питон|java|c\+\+|c#)",
+    r"(напиш(и\b|ь\b)|реализу(й\b|ет\b|ация)|покаж(и\b|ет\b)|сдела(й\b|ть\b)|исправ(ь\b|и\b|ляй)|почин(и\b|ь\b)|отлад(ь\b|и\b)|задеплой|"
+    r"код|функц|алгоритм|скрипт|програм|python|py\b|js\b|javascript|typescript|ts\b|sql|ошибк|баг|bug\b|debug\b|"
+    r"class\b|def \b|import \b|html|css|json|питон|java\b|c\+\+|c#|golang|go\b|rust\b|kotlin|swift\b|"
+    r"dockerfile|docker\b|kubernetes|k8s|yaml\b|bash\b|shell\b|curl\b|api\b|fastapi|django|flask|"
+    r"объясни\s+(код|функцию|скрипт|ошибку)|разбери\s+(код|файл)|что\s+делает\s+(код|функция))",
     re.I,
 )
 _GENA_LONG_DOC_KEYWORDS = re.compile(
-    r"(документ|файл|текст|перевод|реферат|статья|резюме|изложи|summarize|translate|сократи|выдели главное)",
+    r"(документ|файл|текст|перевод|реферат|статья|резюме|изложи|summarize|translate|сократи|выдели главное|"
+    r"проанализируй|проанализировать|объясни\s+(документ|статью|текст)|опиши|расскажи\s+о|расскажи\s+про|"
+    r"сравни|сделай\s+обзор|дай\s+обзор|напиши\s+обзор|напиши\s+резюме|сделай\s+саммари)",
     re.I,
 )
 
