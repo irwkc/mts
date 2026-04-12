@@ -15,6 +15,11 @@ from fastapi import Request
 
 from app.config import settings
 from app.image_utils import image_api_response_to_sse_href
+from app.presentation_pptx import (
+    build_colorful_pptx,
+    generate_images_for_slides,
+    parse_slides_json,
+)
 from app.mws_client import MWSClient
 from app.router_logic import IMAGE_GEN_RE, MUSIC_GEN_RE, PRESENTATION_RE, gena_chat_target
 from app.web_tools import (
@@ -75,14 +80,17 @@ async def stream_presentation_pptx(
     prompt: str,
     available_ids: set[str],
 ) -> AsyncGenerator[str, None]:
-    from pptx import Presentation
-
     yield sse_delta("*(Презентация: генерирую структуру слайдов…)*\n\n")
     model = _pick_model(settings.gena_code_model, available_ids, settings.default_llm)
     system_prompt = (
-        "Ты — генератор структуры презентаций. Верни СТРОГО JSON-массив объектов. "
-        "Каждый объект: 'title' (строка), 'bullets' (массив строк). "
-        "Не менее 5 слайдов. Только JSON, без markdown."
+        "Ты — генератор структуры презентаций (цветные слайды с иллюстрациями). "
+        "Верни СТРОГО JSON-массив объектов. Каждый объект:\n"
+        "- title: заголовок слайда (строка)\n"
+        "- bullets: массив строк — 2–5 пунктов\n"
+        "- accent: цвет темы в формате #RRGGBB (выбирай разные гармоничные цвета по слайдам)\n"
+        "- image_prompt: короткое описание иллюстрации на английском для генерации картинки "
+        "(modern presentation style, no text or letters in the image)\n"
+        "От 5 до 10 слайдов. Только JSON, без markdown и комментариев."
     )
     try:
         data = await client.post_json(
@@ -93,46 +101,30 @@ async def stream_presentation_pptx(
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt[:8000]},
                 ],
-                "temperature": 0.3,
-                "max_tokens": 4000,
+                "temperature": 0.35,
+                "max_tokens": 6000,
             },
         )
         raw = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
-        m = re.search(r"\[.*\]", raw, re.DOTALL)
-        if m:
-            raw = m.group(0)
-        slides_data = json.loads(raw)
-        if not isinstance(slides_data, list):
-            raise ValueError("slides not a list")
+        slides_data = parse_slides_json(raw)
+        slides_data = [s for s in slides_data if isinstance(s, dict)][:10]
+        if len(slides_data) < 1:
+            raise ValueError("no slides in JSON")
 
-        yield sse_delta("*(Презентация: собираю PPTX…)*\n\n")
+        yield sse_delta("*(Презентация: рисую иллюстрации для слайдов…)*\n\n")
+        image_paths = await generate_images_for_slides(client, slides_data, available_ids)
+
+        yield sse_delta("*(Презентация: собираю цветной PPTX…)*\n\n")
 
         static_dir = settings.data_dir / "static" / "presentations"
         static_dir.mkdir(parents=True, exist_ok=True)
         fname = f"presentation_{uuid.uuid4().hex[:10]}.pptx"
         fpath = static_dir / fname
 
-        prs = Presentation()
-        for slide_data in slides_data:
-            if not isinstance(slide_data, dict):
-                continue
-            slide = prs.slides.add_slide(prs.slide_layouts[1])
-            slide.shapes.title.text = str(slide_data.get("title", "Слайд"))
-            body = slide.placeholders[1]
-            tf = body.text_frame
-            bullets = slide_data.get("bullets") or []
-            if isinstance(bullets, list):
-                for i, bullet in enumerate(bullets):
-                    if i == 0:
-                        tf.text = str(bullet)
-                    else:
-                        p = tf.add_paragraph()
-                        p.text = str(bullet)
-
-        prs.save(str(fpath))
+        build_colorful_pptx(slides_data, image_paths, fpath)
         url = public_static_url(request, f"static/presentations/{fname}")
         yield sse_delta(
-            f"✅ **Презентация готова.**\n\n[Скачать PPTX]({url})\n\n"
+            f"✅ **Презентация готова** (цветные слайды и иллюстрации).\n\n[Скачать PPTX]({url})\n\n"
         )
     except Exception as e:
         logger.exception("presentation")
@@ -172,7 +164,7 @@ async def stream_music_demo(
     (static_dir / fname).write_bytes(mp3)
     url = public_static_url(request, f"static/music/{fname}")
     yield sse_delta(
-        "Демо-мелодия (простой синтез по нотам, не студийный саундтрек):\n\n"
+        "Демо-мелодия под песню (~1–1.5 мин, простой синус по нотам, не студийный трек):\n\n"
         f"[Скачать MP3]({url})\n\n"
     )
     yield "data: [DONE]\n\n"
