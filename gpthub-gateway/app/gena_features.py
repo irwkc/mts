@@ -19,7 +19,6 @@ from app.presentation_pptx import (
     build_colorful_pptx,
     parse_presentation_json,
     resolve_slide_images,
-    write_presentation_sidecar,
 )
 from app.mws_client import MWSClient
 from app.router_logic import IMAGE_GEN_RE, MUSIC_GEN_RE, PRESENTATION_RE, gena_chat_target
@@ -182,22 +181,13 @@ async def stream_presentation_pptx(
         stem = f"presentation_{uuid.uuid4().hex[:10]}"
         fname = f"{stem}.pptx"
         fpath = static_dir / fname
-        json_fname = f"{stem}.json"
 
         build_colorful_pptx(slides_data, image_paths, fpath, deck_title=deck_title)
-        write_presentation_sidecar(
-            static_dir / json_fname,
-            deck_title,
-            slides_data,
-            research + ("\n" + page_extra if page_extra else ""),
-        )
         url = public_static_url(request, f"static/presentations/{fname}")
-        json_url = public_static_url(request, f"static/presentations/{json_fname}")
         yield sse_delta(
-            "✅ **Презентация готова** — цветные слайды, **заметки докладчика** (в PowerPoint: Вид → Заметки), "
+            "✅ **Презентация готова** — цветные слайды, **заметки докладчика** (в PowerPoint или Keynote: режим докладчика / заметки), "
             "картинки из **интернета** и/или **нейросети** по полю `image_mode`.\n\n"
             f"[Скачать PPTX]({url})\n\n"
-            f"[Структура JSON для правок]({json_url})\n\n"
         )
     except Exception as e:
         logger.exception("presentation")

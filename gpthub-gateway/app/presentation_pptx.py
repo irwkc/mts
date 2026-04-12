@@ -1,5 +1,6 @@
 """
-Цветные презентации PPTX: иллюстрации (нейро + веб), заметки докладчика, JSON для правок.
+Цветные презентации PPTX: иллюстрации (нейро + веб), заметки докладчика.
+Сборка совместима с PowerPoint и Keynote (OOXML, безопасный текст, PNG/JPEG для картинок).
 """
 
 from __future__ import annotations
@@ -25,6 +26,40 @@ from app.mws_client import MWSClient
 from app.web_tools import image_search_ddg_urls
 
 logger = logging.getLogger("gpthub.presentation")
+
+# Символы, недопустимые в XML 1.0 / OOXML (Keynote иначе может отказать открыть файл).
+_OOXML_ILLEGAL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def sanitize_ooxml_text(s: str, max_len: int = 32000) -> str:
+    if not s:
+        return ""
+    t = _OOXML_ILLEGAL.sub("", str(s))
+    t = "".join(c for c in t if not (0xD800 <= ord(c) <= 0xDFFF))
+    return t[:max_len]
+
+
+def _ensure_keynote_safe_image(src: Optional[Path]) -> Optional[Path]:
+    """PNG/JPEG для встраивания в PPTX; WebP/GIF и прочее — конвертация в PNG (Keynote не любит WebP)."""
+    if src is None or not src.is_file():
+        return None
+    suf = src.suffix.lower()
+    if suf in (".jpg", ".jpeg", ".png"):
+        return src
+    try:
+        from io import BytesIO
+
+        from PIL import Image
+
+        with Image.open(src) as im:
+            im = im.convert("RGB")
+            out = src.parent / f"{src.stem}_pptx.png"
+            im.save(out, "PNG")
+            return out
+    except Exception as e:
+        logger.warning("cannot use image for PPTX (convert/skip): %s (%s)", src, e)
+        return None
+
 
 _DEFAULT_ACCENTS = [
     "#1e40af",
@@ -67,11 +102,6 @@ def _body_text_rgb(accent_rgb: tuple[int, int, int]) -> RGBColor:
     return RGBColor(tr, tg, tb)
 
 
-def _bullet_rgb(accent_rgb: tuple[int, int, int]) -> RGBColor:
-    r, g, b = accent_rgb
-    return RGBColor(min(255, int(r * 0.92 + 10)), min(255, int(g * 0.92 + 10)), min(255, int(b * 0.92 + 10)))
-
-
 def _darken_bar_strip(accent: RGBColor) -> RGBColor:
     try:
         v = int(accent)
@@ -81,12 +111,12 @@ def _darken_bar_strip(accent: RGBColor) -> RGBColor:
     return RGBColor(max(0, int(r * 0.55)), max(0, int(g * 0.55)), max(0, int(b * 0.55)))
 
 
-# Пресеты: шрифты Office-совместимые (Calibri / Arial подставятся на любой ОС при открытии в PowerPoint)
+# Пресеты: Arial есть в macOS/Windows — Keynote стабильнее, чем с «Calibri Light».
 _VISUAL_PRESETS: dict[str, dict[str, Any]] = {
     "corporate": {
-        "title_face": "Calibri Light",
-        "body_face": "Calibri",
-        "notes_face": "Calibri",
+        "title_face": "Arial",
+        "body_face": "Arial",
+        "notes_face": "Arial",
         "title_pt": 32,
         "subtitle_pt": 13,
         "body_pt": 15,
@@ -95,9 +125,9 @@ _VISUAL_PRESETS: dict[str, dict[str, Any]] = {
         "title_bold": False,
     },
     "modern": {
-        "title_face": "Calibri Light",
-        "body_face": "Calibri",
-        "notes_face": "Calibri",
+        "title_face": "Arial",
+        "body_face": "Arial",
+        "notes_face": "Arial",
         "title_pt": 34,
         "subtitle_pt": 14,
         "body_pt": 16,
@@ -106,9 +136,9 @@ _VISUAL_PRESETS: dict[str, dict[str, Any]] = {
         "title_bold": False,
     },
     "bold": {
-        "title_face": "Calibri",
-        "body_face": "Calibri",
-        "notes_face": "Calibri",
+        "title_face": "Arial",
+        "body_face": "Arial",
+        "notes_face": "Arial",
         "title_pt": 36,
         "subtitle_pt": 14,
         "body_pt": 16,
@@ -117,9 +147,9 @@ _VISUAL_PRESETS: dict[str, dict[str, Any]] = {
         "title_bold": True,
     },
     "compact": {
-        "title_face": "Calibri Light",
-        "body_face": "Calibri",
-        "notes_face": "Calibri",
+        "title_face": "Arial",
+        "body_face": "Arial",
+        "notes_face": "Arial",
         "title_pt": 28,
         "subtitle_pt": 12,
         "body_pt": 14,
@@ -141,13 +171,8 @@ def _preset_for_slide(slide_data: dict[str, Any], idx: int) -> dict[str, Any]:
 
 
 def _set_paragraph_line_spacing(p, multiple: float = 1.12) -> None:
-    try:
-        p.line_spacing = multiple
-    except Exception:
-        try:
-            p.line_spacing = Pt(int(15 * multiple))
-        except Exception:
-            pass
+    """Пусто: float line_spacing в python-pptx даёт разметку, с которой Keynote импортёр падает."""
+    pass
 
 
 def parse_slides_json(raw: str) -> list[dict[str, Any]]:
@@ -220,17 +245,28 @@ async def download_first_web_image(urls: list[str]) -> Optional[Path]:
                 continue
             if not _is_image_magic(body):
                 continue
-            ext = ".png"
+            from io import BytesIO
+
+            from PIL import Image
+
+            uid = uuid.uuid4().hex[:12]
+            # Keynote часто не принимает WebP/GIF внутри PPTX — сохраняем как PNG/JPEG.
             if body[:2] == b"\xff\xd8":
-                ext = ".jpg"
-            elif body[:4] == b"GIF8":
-                ext = ".gif"
-            elif body[:4] == b"RIFF":
-                ext = ".webp"
-            fn = f"webimg_{uuid.uuid4().hex[:12]}{ext}"
-            p = d / fn
-            p.write_bytes(body)
-            return p
+                p = d / f"webimg_{uid}.jpg"
+                p.write_bytes(body)
+                return p
+            if body[:8] == b"\x89PNG\r\n\x1a\n":
+                p = d / f"webimg_{uid}.png"
+                p.write_bytes(body)
+                return p
+            try:
+                im = Image.open(BytesIO(body)).convert("RGB")
+                p = d / f"webimg_{uid}.png"
+                im.save(p, "PNG")
+                return p
+            except Exception as e:
+                logger.debug("skip non-trivial image format: %s", e)
+                continue
         except Exception as e:
             logger.debug("skip image url %s: %s", url[:60], e)
             continue
@@ -344,8 +380,9 @@ def build_colorful_pptx(
     for idx, slide_data in enumerate(slides_data):
         preset = _preset_for_slide(slide_data, idx)
         bar_h = Inches(float(preset["bar_in"]))
-        img_path = image_paths[idx] if idx < len(image_paths) else None
-        title = str(slide_data.get("title") or "Слайд")
+        raw_img = image_paths[idx] if idx < len(image_paths) else None
+        img_path = _ensure_keynote_safe_image(raw_img)
+        title = sanitize_ooxml_text(str(slide_data.get("title") or "Слайд"), 500)
         bullets = slide_data.get("bullets") or []
         if not isinstance(bullets, list):
             bullets = []
@@ -358,7 +395,6 @@ def build_colorful_pptx(
         accent, light_bg = _hex_to_rgb(accent_s, idx)
         accent_rgb = _rgb_tuple_from_hex(accent_s, idx)
         body_col = _body_text_rgb(accent_rgb)
-        bullet_col = _bullet_rgb(accent_rgb)
 
         slide = prs.slides.add_slide(blank)
 
@@ -392,7 +428,7 @@ def build_colorful_pptx(
         bar_bottom = slide.shapes.add_shape(
             MSO_SHAPE.RECTANGLE,
             0,
-            Emu(int(bar_h) - int(strip_h)),
+            Emu(max(0, int(bar_h) - int(strip_h))),
             slide_w,
             strip_h,
         )
@@ -422,7 +458,7 @@ def build_colorful_pptx(
         subtitle = slide_data.get("subtitle")
         if isinstance(subtitle, str) and subtitle.strip():
             ps = tf_t.add_paragraph()
-            ps.text = subtitle.strip()[:400]
+            ps.text = sanitize_ooxml_text(subtitle.strip(), 400)
             ps.font.name = preset["body_face"]
             ps.font.size = Pt(int(preset["subtitle_pt"]))
             ps.font.bold = False
@@ -449,7 +485,7 @@ def build_colorful_pptx(
 
         first_line = True
         for bullet in bullets[:12]:
-            text = str(bullet).strip()
+            text = sanitize_ooxml_text(str(bullet).strip(), 2000)
             if not text:
                 continue
             if first_line:
@@ -457,17 +493,11 @@ def build_colorful_pptx(
                 first_line = False
             else:
                 p = tf_b.add_paragraph()
-            p.text = ""
-            r_dot = p.add_run()
-            r_dot.text = "●  "
-            r_dot.font.name = preset["body_face"]
-            r_dot.font.size = Pt(max(11, int(preset["body_pt"]) - 1))
-            r_dot.font.color.rgb = bullet_col
-            r_txt = p.add_run()
-            r_txt.text = text
-            r_txt.font.name = preset["body_face"]
-            r_txt.font.size = Pt(int(preset["body_pt"]))
-            r_txt.font.color.rgb = body_col
+            # Одна строка с маркером — так Keynote не ломается на пустом p.text + нескольких run.
+            p.text = "●  " + text
+            p.font.name = preset["body_face"]
+            p.font.size = Pt(int(preset["body_pt"]))
+            p.font.color.rgb = body_col
             p.space_after = Pt(10)
             p.level = 0
             _set_paragraph_line_spacing(p, 1.14)
@@ -483,7 +513,10 @@ def build_colorful_pptx(
             pic_left = Inches(5.42)
             pic_top = top_body
             pic_w = Inches(4.2)
-            slide.shapes.add_picture(str(img_path), pic_left, pic_top, width=pic_w, height=body_h)
+            try:
+                slide.shapes.add_picture(str(img_path), pic_left, pic_top, width=pic_w, height=body_h)
+            except Exception as e:
+                logger.warning("add_picture failed, slide without image: %s", e)
 
         # Подвал: название деки + номер слайда
         foot_top = Emu(int(slide_h) - int(Inches(0.4)))
@@ -496,7 +529,7 @@ def build_colorful_pptx(
             )
             tff = ft_left.text_frame
             fp = tff.paragraphs[0]
-            fp.text = (deck_title or "").strip()[:140]
+            fp.text = sanitize_ooxml_text((deck_title or "").strip(), 140)
             fp.font.name = preset["body_face"]
             fp.font.size = Pt(int(preset["footer_pt"]))
             fp.font.color.rgb = RGBColor(110, 118, 128)
@@ -508,7 +541,7 @@ def build_colorful_pptx(
             Inches(0.32),
         )
         fnp = fn_box.text_frame.paragraphs[0]
-        fnp.text = f"{idx + 1} / {n_slides}"
+        fnp.text = sanitize_ooxml_text(f"{idx + 1} / {n_slides}", 32)
         fnp.font.name = preset["body_face"]
         fnp.font.size = Pt(int(preset["footer_pt"]))
         fnp.font.color.rgb = RGBColor(150, 155, 165)
@@ -517,24 +550,24 @@ def build_colorful_pptx(
         sn_parts: list[str] = []
         sn = slide_data.get("speaker_notes") or slide_data.get("notes")
         if isinstance(sn, str) and sn.strip():
-            sn_parts.append(sn.strip())
+            sn_parts.append(sanitize_ooxml_text(sn.strip(), 12000))
         sources = slide_data.get("sources")
         if isinstance(sources, list):
             lines: list[str] = []
             for s in sources[:8]:
                 if isinstance(s, dict):
-                    t = str(s.get("title") or "").strip()
-                    u = str(s.get("url") or "").strip()
+                    t = sanitize_ooxml_text(str(s.get("title") or "").strip(), 500)
+                    u = sanitize_ooxml_text(str(s.get("url") or "").strip(), 2000)
                     if u:
                         lines.append(f"• {t}: {u}" if t else f"• {u}")
                 elif isinstance(s, str) and s.strip():
-                    lines.append(f"• {s.strip()}")
+                    lines.append("• " + sanitize_ooxml_text(s.strip(), 2000))
             if lines:
                 sn_parts.append("Источники:\n" + "\n".join(lines))
         if sn_parts:
             try:
                 ns = slide.notes_slide
-                ns.notes_text_frame.text = "\n\n".join(sn_parts)[:15000]
+                ns.notes_text_frame.text = sanitize_ooxml_text("\n\n".join(sn_parts), 15000)
                 for np in ns.notes_text_frame.paragraphs:
                     np.font.name = preset["notes_face"]
                     np.font.size = Pt(11)
