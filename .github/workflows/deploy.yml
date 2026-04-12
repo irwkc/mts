@@ -36,3 +36,4 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             sudo docker compose up -d --build
+            sudo bash scripts/setup-nginx.sh

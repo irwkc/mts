@@ -27,9 +27,8 @@ services:
     depends_on:
       - gpthub-gateway
     ports:
-      # 80 — без :порта в URL; 3000 — явный порт (как раньше)
-      - "80:8080"
-      - "3000:8080"
+      # Только localhost: снаружи отдаёт nginx на :80 (см. deploy/nginx-open-webui.conf)
+      - "127.0.0.1:3000:8080"
     environment:
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-gpthub-change-me-in-production}
       ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
