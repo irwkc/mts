@@ -7,6 +7,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONF_SRC="$ROOT/deploy/nginx-open-webui.conf"
 CONF_DST="/etc/nginx/sites-available/mts"
+MAP_SRC="$ROOT/deploy/nginx-websocket-map.conf"
+MAP_DST="/etc/nginx/conf.d/mts-websocket-map.conf"
 
 if [[ "${EUID:-0}" -ne 0 ]]; then
   echo "Нужен root: sudo bash $0" >&2
@@ -22,6 +24,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq nginx
 
+install -m 644 "$MAP_SRC" "$MAP_DST"
 install -m 644 "$CONF_SRC" "$CONF_DST"
 rm -f /etc/nginx/sites-enabled/default
 ln -sf "$CONF_DST" /etc/nginx/sites-enabled/mts
