@@ -1,3 +1,4 @@
+import logging
 import re
 from typing import Optional
 from urllib.parse import urlparse
@@ -5,6 +6,8 @@ from urllib.parse import urlparse
 import httpx
 import trafilatura
 from duckduckgo_search import DDGS
+
+logger = logging.getLogger("gpthub.web_tools")
 
 
 URL_RE = re.compile(r"https?://[^\s)>\]}]+", re.I)
@@ -118,6 +121,23 @@ def should_run_web_search(last_user_text: str) -> bool:
     if should_run_deep_research(last_user_text):
         return False
     return bool(_WEB_SEARCH_TRIGGERS.search(t))
+
+
+def image_search_ddg_urls(query: str, max_results: int = 10) -> list[str]:
+    """Поиск картинок в интернете (DuckDuckGo images). Возвращает прямые URL изображений."""
+    q = (query or "").strip()[:500]
+    if len(q) < 2:
+        return []
+    urls: list[str] = []
+    try:
+        with DDGS() as ddgs:
+            for r in ddgs.images(q, max_results=max_results):
+                u = (r.get("image") or r.get("thumbnail") or "").strip()
+                if u.startswith("http") and u not in urls:
+                    urls.append(u)
+    except Exception as e:
+        logger.warning("image_search_ddg_urls: %s", e)
+    return urls
 
 
 def search_query_from_text(last_user_text: str) -> str:

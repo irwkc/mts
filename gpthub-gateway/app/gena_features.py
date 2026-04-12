@@ -17,9 +17,11 @@ from app.config import settings
 from app.image_utils import image_api_response_to_sse_href
 from app.presentation_pptx import (
     build_colorful_pptx,
-    generate_images_for_slides,
-    parse_slides_json,
+    parse_presentation_json,
+    resolve_slide_images,
+    write_presentation_sidecar,
 )
+from app.web_tools import extract_urls, fetch_url_text, web_search_ddg
 from app.mws_client import MWSClient
 from app.router_logic import IMAGE_GEN_RE, MUSIC_GEN_RE, PRESENTATION_RE, gena_chat_target
 from app.web_tools import (
@@ -80,17 +82,45 @@ async def stream_presentation_pptx(
     prompt: str,
     available_ids: set[str],
 ) -> AsyncGenerator[str, None]:
-    yield sse_delta("*(Презентация: генерирую структуру слайдов…)*\n\n")
+    yield sse_delta("*(Презентация: ищу материалы в интернете…)*\n\n")
+    research = web_search_ddg((prompt or "")[:600], max_results=6)
+    page_bits: list[str] = []
+    for u in extract_urls(research, limit=2):
+        try:
+            pg = await fetch_url_text(u, max_chars=3200)
+            page_bits.append(f"--- {u} ---\n{pg[:2800]}")
+        except Exception:
+            continue
+    page_extra = "\n\n".join(page_bits)
+
+    user_bundle = (
+        f"Запрос пользователя:\n{prompt[:8000]}\n\n"
+        f"Сниппеты веб-поиска (используй для фактов и ссылок sources):\n{research[:7000]}"
+    )
+    if page_extra:
+        user_bundle += f"\n\nФрагменты страниц для анализа:\n{page_extra[:6000]}"
+
+    yield sse_delta("*(Презентация: генерирую структуру слайдов и заметки докладчика…)*\n\n")
     model = _pick_model(settings.gena_code_model, available_ids, settings.default_llm)
     system_prompt = (
-        "Ты — генератор структуры презентаций (цветные слайды с иллюстрациями). "
-        "Верни СТРОГО JSON-массив объектов. Каждый объект:\n"
-        "- title: заголовок слайда (строка)\n"
-        "- bullets: массив строк — 2–5 пунктов\n"
-        "- accent: цвет темы в формате #RRGGBB (выбирай разные гармоничные цвета по слайдам)\n"
-        "- image_prompt: короткое описание иллюстрации на английском для генерации картинки "
-        "(modern presentation style, no text or letters in the image)\n"
-        "От 5 до 10 слайдов. Только JSON, без markdown и комментариев."
+        "Ты — автор презентаций (как умный ассистент с веб-контекстом): факты, структура, заметки докладчика, иллюстрации.\n"
+        "Верни СТРОГО один JSON-объект без markdown. Формат:\n"
+        '{"deck_title":"Краткое название презентации",'
+        '"slides":['
+        '{"title":"Заголовок слайда","subtitle":"Подзаголовок или пустая строка",'
+        '"bullets":["пункт 1","пункт 2"],'
+        '"speaker_notes":"2–6 предложений: что говорить с экрана, акценты, переходы (редактируется в PowerPoint в заметках к слайду)",'
+        '"accent":"#RRGGBB",'
+        '"image_mode":"auto|search|generate",'
+        '"image_query":"ключи на английском для поиска картинок в интернете (для search/auto)",'
+        '"image_prompt":"описание на английском для нейро-картинки если generate или fallback",'
+        '"sources":[{"title":"кратко","url":"https://..."}]}'
+        "]}\n"
+        "Правила: 5–10 слайдов; разные гармоничные accent; "
+        "image_mode: search — только реальные фото/схемы из интернета; generate — только нейро-иллюстрация; "
+        "auto — сначала подобрать изображение из веба, иначе нейро. "
+        "sources — только реальные URL из контекста веб-поиска выше (0–2 на слайд). "
+        "Не выдумывай URL."
     )
     try:
         data = await client.post_json(
@@ -99,32 +129,53 @@ async def stream_presentation_pptx(
                 "model": model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt[:8000]},
+                    {"role": "user", "content": user_bundle[:24000]},
                 ],
                 "temperature": 0.35,
-                "max_tokens": 6000,
+                "max_tokens": 8000,
             },
         )
         raw = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
-        slides_data = parse_slides_json(raw)
+        deck_title, slides_data = parse_presentation_json(raw)
         slides_data = [s for s in slides_data if isinstance(s, dict)][:10]
         if len(slides_data) < 1:
             raise ValueError("no slides in JSON")
 
-        yield sse_delta("*(Презентация: рисую иллюстрации для слайдов…)*\n\n")
-        image_paths = await generate_images_for_slides(client, slides_data, available_ids)
+        plan_lines = [f"**{deck_title}**" if deck_title else "**Презентация**"]
+        for i, s in enumerate(slides_data, 1):
+            plan_lines.append(f"{i}. {s.get('title', 'Слайд')}")
+        yield sse_delta(
+            "**План слайдов** (дальше — картинки и сборка; текст и заметки можно править в PowerPoint):\n\n"
+            + "\n".join(plan_lines)
+            + "\n\n"
+        )
 
-        yield sse_delta("*(Презентация: собираю цветной PPTX…)*\n\n")
+        yield sse_delta("*(Презентация: подбираю изображения — веб и нейросеть…)*\n\n")
+        image_paths = await resolve_slide_images(client, slides_data, available_ids)
+
+        yield sse_delta("*(Презентация: собираю PPTX с заметками докладчика…)*\n\n")
 
         static_dir = settings.data_dir / "static" / "presentations"
         static_dir.mkdir(parents=True, exist_ok=True)
-        fname = f"presentation_{uuid.uuid4().hex[:10]}.pptx"
+        stem = f"presentation_{uuid.uuid4().hex[:10]}"
+        fname = f"{stem}.pptx"
         fpath = static_dir / fname
+        json_fname = f"{stem}.json"
 
         build_colorful_pptx(slides_data, image_paths, fpath)
+        write_presentation_sidecar(
+            static_dir / json_fname,
+            deck_title,
+            slides_data,
+            research + ("\n" + page_extra if page_extra else ""),
+        )
         url = public_static_url(request, f"static/presentations/{fname}")
+        json_url = public_static_url(request, f"static/presentations/{json_fname}")
         yield sse_delta(
-            f"✅ **Презентация готова** (цветные слайды и иллюстрации).\n\n[Скачать PPTX]({url})\n\n"
+            "✅ **Презентация готова** — цветные слайды, **заметки докладчика** (в PowerPoint: Вид → Заметки), "
+            "картинки из **интернета** и/или **нейросети** по полю `image_mode`.\n\n"
+            f"[Скачать PPTX]({url})\n\n"
+            f"[Структура JSON для правок]({json_url})\n\n"
         )
     except Exception as e:
         logger.exception("presentation")

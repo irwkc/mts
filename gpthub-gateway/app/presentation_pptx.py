@@ -1,5 +1,5 @@
 """
-Цветные презентации PPTX с иллюстрациями (python-pptx + images/generations).
+Цветные презентации PPTX: иллюстрации (нейро + веб), заметки докладчика, JSON для правок.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from pptx.util import Inches, Pt
 from app.config import settings
 from app.image_utils import image_api_response_to_sse_href
 from app.mws_client import MWSClient
+from app.web_tools import image_search_ddg_urls
 
 logger = logging.getLogger("gpthub.presentation")
 
@@ -58,6 +59,102 @@ def parse_slides_json(raw: str) -> list[dict[str, Any]]:
     if not isinstance(data, list):
         raise ValueError("slides not a list")
     return [x for x in data if isinstance(x, dict)]
+
+
+def parse_presentation_json(raw: str) -> tuple[str, list[dict[str, Any]]]:
+    """
+    Объект {\"deck_title\", \"slides\": [...]} (предпочтительно) или голый массив слайдов.
+    """
+    t = (raw or "").strip()
+    if "```" in t:
+        cm = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", t)
+        if cm:
+            t = cm.group(1).strip()
+    mobj = re.search(r"\{[\s\S]*\"slides\"[\s\S]*\}", t)
+    if mobj:
+        try:
+            obj = json.loads(mobj.group(0))
+            slides = obj.get("slides")
+            if isinstance(slides, list):
+                deck = str(obj.get("deck_title") or obj.get("title") or "").strip()
+                return deck, [x for x in slides if isinstance(x, dict)]
+        except json.JSONDecodeError:
+            pass
+    return "", parse_slides_json(raw)
+
+
+def _is_image_magic(data: bytes) -> bool:
+    if len(data) < 12:
+        return False
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return True
+    if data[:2] == b"\xff\xd8":
+        return True
+    if data[:4] == b"GIF8":
+        return True
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return True
+    return False
+
+
+async def download_first_web_image(urls: list[str]) -> Optional[Path]:
+    """Скачать первое подходящее изображение по URL из поиска."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; GPTHub/1.0; presentation-images)",
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    }
+    d = settings.data_dir / "static" / "images"
+    d.mkdir(parents=True, exist_ok=True)
+    for url in urls[:12]:
+        if not (url.startswith("http://") or url.startswith("https://")):
+            continue
+        try:
+            async with httpx.AsyncClient(
+                timeout=25.0,
+                follow_redirects=True,
+                headers=headers,
+            ) as client:
+                r = await client.get(url)
+                r.raise_for_status()
+                body = r.content
+            if len(body) < 800 or len(body) > 5_000_000:
+                continue
+            if not _is_image_magic(body):
+                continue
+            ext = ".png"
+            if body[:2] == b"\xff\xd8":
+                ext = ".jpg"
+            elif body[:4] == b"GIF8":
+                ext = ".gif"
+            elif body[:4] == b"RIFF":
+                ext = ".webp"
+            fn = f"webimg_{uuid.uuid4().hex[:12]}{ext}"
+            p = d / fn
+            p.write_bytes(body)
+            return p
+        except Exception as e:
+            logger.debug("skip image url %s: %s", url[:60], e)
+            continue
+    return None
+
+
+def write_presentation_sidecar(
+    path: Path,
+    deck_title: str,
+    slides_data: list[dict[str, Any]],
+    research_excerpt: str,
+) -> None:
+    """JSON со структурой для ручного редактирования (как «исходник» кроме PPTX)."""
+    doc = {
+        "deck_title": deck_title,
+        "slides": slides_data,
+        "research_excerpt": (research_excerpt or "")[:8000],
+        "edit_hint": (
+            "Откройте PPTX в PowerPoint: правьте текст на слайдах и блок «Заметки» под слайдом (режим докладчика). "
+            "Этот JSON можно править вручную для следующей генерации."
+        ),
+    }
+    path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 async def _href_to_local_path(href: str) -> Optional[Path]:
@@ -142,7 +239,7 @@ def build_colorful_pptx(
 
     slide_w = prs.slide_width
     slide_h = prs.slide_height
-    bar_h = Inches(1.2)
+    bar_h = Inches(1.35)
 
     for idx, slide_data in enumerate(slides_data):
         img_path = image_paths[idx] if idx < len(image_paths) else None
@@ -188,6 +285,15 @@ def build_colorful_pptx(
         p0.font.color.rgb = RGBColor(255, 255, 255)
         p0.alignment = PP_ALIGN.LEFT
 
+        subtitle = slide_data.get("subtitle")
+        if isinstance(subtitle, str) and subtitle.strip():
+            ps = tf_t.add_paragraph()
+            ps.text = subtitle.strip()[:400]
+            ps.font.size = Pt(13)
+            ps.font.bold = False
+            ps.font.color.rgb = RGBColor(230, 235, 255)
+            ps.space_before = Pt(4)
+
         # Текст: слева; если есть картинка — уже колонка
         left_margin = Inches(0.45)
         top_body = bar_h + Inches(0.25)
@@ -228,30 +334,88 @@ def build_colorful_pptx(
             pic_w = Inches(4.15)
             slide.shapes.add_picture(str(img_path), pic_left, pic_top, width=pic_w, height=body_h)
 
+        sn_parts: list[str] = []
+        sn = slide_data.get("speaker_notes") or slide_data.get("notes")
+        if isinstance(sn, str) and sn.strip():
+            sn_parts.append(sn.strip())
+        sources = slide_data.get("sources")
+        if isinstance(sources, list):
+            lines: list[str] = []
+            for s in sources[:8]:
+                if isinstance(s, dict):
+                    t = str(s.get("title") or "").strip()
+                    u = str(s.get("url") or "").strip()
+                    if u:
+                        lines.append(f"• {t}: {u}" if t else f"• {u}")
+                elif isinstance(s, str) and s.strip():
+                    lines.append(f"• {s.strip()}")
+            if lines:
+                sn_parts.append("Источники:\n" + "\n".join(lines))
+        if sn_parts:
+            try:
+                ns = slide.notes_slide
+                ns.notes_text_frame.text = "\n\n".join(sn_parts)[:15000]
+            except Exception as e:
+                logger.warning("speaker notes: %s", e)
+
     prs.save(str(out_path))
 
 
-async def generate_images_for_slides(
+async def _resolve_one_slide_image(
+    client: MWSClient,
+    row: dict[str, Any],
+    model_id: str,
+) -> Optional[Path]:
+    """Картинка: веб-поиск и/или нейро в зависимости от image_mode."""
+    mode = str(row.get("image_mode") or "auto").strip().lower()
+    q = (row.get("image_query") or "").strip()
+    title = str(row.get("title") or "")
+    search_q = (q or title)[:500]
+
+    async def gen_neuro() -> Optional[Path]:
+        ip = row.get("image_prompt")
+        if isinstance(ip, str) and ip.strip():
+            prompt = ip.strip()
+        else:
+            prompt = (
+                f"Illustration for presentation slide: {title}. Topics: {row.get('bullets', [])}"
+            )
+        try:
+            return await generate_slide_image(client, model_id, prompt)
+        except Exception as e:
+            logger.warning("slide neuro image: %s", e)
+            return None
+
+    if mode in ("search", "web", "internet", "ddg"):
+        urls = image_search_ddg_urls(search_q, max_results=12)
+        got = await download_first_web_image(urls)
+        if got:
+            return got
+        return await gen_neuro()
+
+    if mode in ("generate", "ai", "neuro", "neural"):
+        return await gen_neuro()
+
+    # auto: реальные фото/схемы из сети, иначе нейро
+    urls = image_search_ddg_urls(search_q, max_results=12)
+    got = await download_first_web_image(urls)
+    if got:
+        return got
+    return await gen_neuro()
+
+
+async def resolve_slide_images(
     client: MWSClient,
     slides_data: list[dict[str, Any]],
     available_ids: set[str],
 ) -> list[Optional[Path]]:
-    """Параллельно (с лимитом) сгенерировать по картинке на слайд."""
+    """По одному изображению на слайд: веб и/или генерация."""
     model_id = _pick_image_model(available_ids)
-    sem = asyncio.Semaphore(2)
+    sem = asyncio.Semaphore(3)
 
-    async def one(i: int, row: dict[str, Any]) -> Optional[Path]:
+    async def one(row: dict[str, Any]) -> Optional[Path]:
         async with sem:
-            ip = row.get("image_prompt")
-            if isinstance(ip, str) and ip.strip():
-                prompt = ip.strip()
-            else:
-                prompt = f"Illustration for presentation slide: {row.get('title', '')}. Topics: {row.get('bullets', [])}"
-            try:
-                return await generate_slide_image(client, model_id, prompt)
-            except Exception as e:
-                logger.warning("slide %s image: %s", i, e)
-                return None
+            return await _resolve_one_slide_image(client, row, model_id)
 
-    tasks = [one(i, row) for i, row in enumerate(slides_data)]
+    tasks = [one(row) for row in slides_data]
     return list(await asyncio.gather(*tasks))
