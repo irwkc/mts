@@ -55,6 +55,8 @@ services:
       # Только localhost: снаружи отдаёт nginx на :80 (см. deploy/nginx-open-webui.conf)
       - "127.0.0.1:3000:8080"
     environment:
+      # Иначе настройки из SQLite перекрывают AUDIO_* из compose — STT/TTS «молчат»
+      ENABLE_PERSISTENT_CONFIG: "false"
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-gpthub-change-me-in-production}
       # Админ при пустой БД (только первый старт); иначе залогиньтесь существующим юзером
       WEBUI_ADMIN_EMAIL: ${WEBUI_ADMIN_EMAIL:-test@mail.ru}

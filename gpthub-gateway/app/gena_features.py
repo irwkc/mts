@@ -14,6 +14,7 @@ import httpx
 from fastapi import Request
 
 from app.config import settings
+from app.image_utils import image_api_response_to_data_url
 from app.mws_client import MWSClient
 from app.router_logic import IMAGE_GEN_RE, PRESENTATION_RE, gena_chat_target
 from app.web_tools import (
@@ -164,12 +165,7 @@ async def stream_image_markdown(
             "/images/generations",
             {"model": model_id, "prompt": prompt[:4000], "n": 1, "size": "1024x1024"},
         )
-        url = ""
-        if img_resp.get("data"):
-            url = img_resp["data"][0].get("url") or ""
-            b64 = img_resp["data"][0].get("b64_json")
-            if b64:
-                url = f"data:image/png;base64,{b64}"
+        url = await image_api_response_to_data_url(img_resp)
         if url:
             yield sse_delta(f"![Изображение]({url})\n\n")
         else:

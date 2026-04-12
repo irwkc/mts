@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
+from app.image_utils import image_api_response_to_data_url
 from app.chroma_store import recall_block as chroma_recall_block, save_message as chroma_save_message
 from app.gena_features import (
     should_stream_deep_gena,
@@ -407,13 +408,7 @@ async def maybe_image_generation_chat(
     except Exception as e:
         logger.warning("image gen failed: %s", e)
         return None
-    # OpenAI images format
-    url = ""
-    if img_resp.get("data") and len(img_resp["data"]) > 0:
-        url = img_resp["data"][0].get("url") or ""
-        b64 = img_resp["data"][0].get("b64_json")
-        if b64:
-            url = f"data:image/png;base64,{b64}"
+    url = await image_api_response_to_data_url(img_resp)
     if not url:
         return None
     content = f"Сгенерировано изображение:\n\n![image]({url})"
