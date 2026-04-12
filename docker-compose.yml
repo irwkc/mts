@@ -63,6 +63,10 @@ services:
       WEBUI_ADMIN_PASSWORD: ${WEBUI_ADMIN_PASSWORD:-123}
       WEBUI_ADMIN_NAME: ${WEBUI_ADMIN_NAME:-Test}
       ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
+      # pending = ждут активации админом; user = сразу доступ (рекомендуется для своего сервера)
+      DEFAULT_USER_ROLE: ${DEFAULT_USER_ROLE:-user}
+      # true = логин обязателен. false = без входа (только при ПУСТОЙ БД; иначе сотрите том open-webui-data)
+      WEBUI_AUTH: ${WEBUI_AUTH:-true}
       ENABLE_OLLAMA_API: "false"
       ENABLE_OPENAI_API: "true"
       OPENAI_API_BASE_URL: http://gpthub-gateway:8080/v1
