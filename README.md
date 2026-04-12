@@ -42,6 +42,10 @@ bash scripts/compose-up-verbose.sh
 
 Если в Open WebUI по-прежнему пустой список моделей после смены настроек, один раз пересоздайте контейнер (`docker compose up -d --force-recreate`) или удалите том `open-webui-data` (удалит локальные чаты).
 
+### Автозапуск после перезагрузки сервера
+
+Юнит **systemd** `mts-docker.service` выполняет `docker compose up -d` при загрузке (после `docker.service`). Установка: `sudo bash scripts/install-boot-autostart.sh` из `~/mts` (или `MTS_HOME=/path/to/mts sudo -E bash scripts/install-boot-autostart.sh`). Включены также `docker` и при наличии **nginx**. Деплой через Actions вызывает этот скрипт автоматически.
+
 ## Структура
 
 - `docker-compose.yml` — Open WebUI + GPTHub Gateway.
