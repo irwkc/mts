@@ -10,6 +10,14 @@
 docker compose up -d --build
 ```
 
+**Open WebUI на машину не устанавливается:** в `docker-compose.yml` для него указан готовый образ `ghcr.io/open-webui/open-webui:main` — Docker только **скачивает** его при первом запуске. **Собирается** из исходников только контейнер **gpthub-gateway** (`./gpthub-gateway`).
+
+Чтобы в терминале было видно загрузку слоёв и шаги сборки (удобно на сервере по SSH):
+
+```bash
+bash scripts/compose-up-verbose.sh
+```
+
 Одна команда после подготовки `.env`: `docker compose up -d --build`.
 
 Откройте в браузере: **http://localhost:3000**
