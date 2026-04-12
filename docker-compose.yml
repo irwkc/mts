@@ -1,0 +1,42 @@
+services:
+  gpthub-gateway:
+    build:
+      context: ./gpthub-gateway
+      dockerfile: Dockerfile
+    environment:
+      MWS_API_BASE: ${MWS_API_BASE:-https://api.gpt.mws.ru/v1}
+      MWS_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
+      DEFAULT_LLM: ${DEFAULT_LLM:-mts-anya}
+      VISION_MODEL: ${VISION_MODEL:-gpt-4o}
+      IMAGE_GEN_MODEL: ${IMAGE_GEN_MODEL:-qwen-image}
+      ASR_MODEL: ${ASR_MODEL:-whisper-large-v3}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
+    volumes:
+      - gpthub-data:/data
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    depends_on:
+      - gpthub-gateway
+    ports:
+      - "3000:8080"
+    environment:
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-gpthub-change-me-in-production}
+      ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
+      OPENAI_API_BASE_URL: http://gpthub-gateway:8080/v1
+      OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
+    volumes:
+      - open-webui-data:/app/backend/data
+    restart: unless-stopped
+
+volumes:
+  gpthub-data:
+  open-webui-data:
