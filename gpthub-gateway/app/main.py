@@ -87,9 +87,12 @@ def _delta_content_to_text(delta: dict[str, Any]) -> str:
     if isinstance(c, list):
         parts: list[str] = []
         for p in c:
-            if isinstance(p, dict) and p.get("type") == "text":
+            if isinstance(p, dict):
                 t = p.get("text")
-                if isinstance(t, str):
+                typ = (p.get("type") or "").lower()
+                if typ in ("text", "output_text") and isinstance(t, str):
+                    parts.append(t)
+                elif isinstance(t, str):
                     parts.append(t)
             elif isinstance(p, str):
                 parts.append(p)
@@ -98,10 +101,10 @@ def _delta_content_to_text(delta: dict[str, Any]) -> str:
 
 
 def _ensure_delta_content_for_client(delta: dict[str, Any]) -> None:
-    """Чтобы Open WebUI не показывал пустой бабл, дублируем reasoning* в delta.content."""
+    """Чтобы Open WebUI не показывал пустой бабл, дублируем вспомогательные поля в delta.content."""
     if _delta_content_to_text(delta):
         return
-    for key in ("reasoning_content", "reasoning"):
+    for key in ("reasoning_content", "reasoning", "output_text", "text"):
         v = delta.get(key)
         if isinstance(v, str) and v:
             delta["content"] = v
@@ -137,21 +140,48 @@ async def _persist_turn_memory(
         logger.debug("memory persist: %s", ex)
 
 
+def _assistant_content_to_plain(msg: dict[str, Any]) -> str:
+    c = msg.get("content")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        parts: list[str] = []
+        for p in c:
+            if isinstance(p, dict):
+                t = p.get("text")
+                if p.get("type") == "text" and isinstance(t, str):
+                    parts.append(t)
+                elif isinstance(t, str):
+                    parts.append(t)
+            elif isinstance(p, str):
+                parts.append(p)
+        return "".join(parts)
+    return ""
+
+
 def _patch_stream_chunk_for_ui(j: dict[str, Any]) -> None:
-    """Нормализация SSE: reasoning в content + редкий fallback message.content."""
+    """Нормализация SSE: reasoning в content + message в delta (нестандартные провайдеры)."""
     choices = j.get("choices")
     if not isinstance(choices, list) or not choices:
         return
     ch0 = choices[0]
     delta = ch0.get("delta")
-    if isinstance(delta, dict):
-        _ensure_delta_content_for_client(delta)
-        if not _delta_content_to_text(delta):
-            msg = ch0.get("message")
-            if isinstance(msg, dict):
-                mc = msg.get("content")
-                if isinstance(mc, str) and mc:
-                    delta["content"] = mc
+    if not isinstance(delta, dict):
+        ch0["delta"] = {}
+        delta = ch0["delta"]
+    _ensure_delta_content_for_client(delta)
+    if not _delta_content_to_text(delta):
+        msg = ch0.get("message")
+        if isinstance(msg, dict):
+            plain = _assistant_content_to_plain(msg)
+            if plain:
+                delta["content"] = plain
+            else:
+                for key in ("reasoning_content", "reasoning"):
+                    v = msg.get(key)
+                    if isinstance(v, str) and v:
+                        delta["content"] = v
+                        break
 
 
 logging.basicConfig(level=logging.INFO)
@@ -498,6 +528,7 @@ async def chat_completions(request: Request) -> Response:
 
     async def gen():
         acc: list[str] = []
+        done_sent = False
         async with httpx.AsyncClient(timeout=300.0) as client:
             async with client.stream(
                 "POST",
@@ -515,9 +546,11 @@ async def chat_completions(request: Request) -> Response:
                 async for line in resp.aiter_lines():
                     if not line:
                         continue
-                    if line.startswith("data: "):
-                        payload = line[6:].strip()
+                    out_line = line
+                    if line.startswith("data:"):
+                        payload = line[5:].lstrip()
                         if payload == "[DONE]":
+                            done_sent = True
                             yield "data: [DONE]\n\n"
                             break
                         try:
@@ -527,13 +560,30 @@ async def chat_completions(request: Request) -> Response:
                             c = _delta_content_to_text(delta)
                             if c:
                                 acc.append(c)
-                            line = f"data: {json.dumps(j, ensure_ascii=False)}"
+                            out_line = f"data: {json.dumps(j, ensure_ascii=False)}"
                         except json.JSONDecodeError:
                             pass
-                    yield line + "\n\n"
+                    yield out_line + "\n\n"
+                if not done_sent:
+                    yield "data: [DONE]\n\n"
+        if not acc:
+            logger.warning(
+                "stream ended with no text deltas (model=%s requested=%r); "
+                "check upstream format or MWS key/models",
+                resolved_model,
+                requested_model,
+            )
         if _memory and last_text and acc:
             await _persist_turn_memory(
                 user_id, last_text[:2000], "".join(acc)[:4000]
             )
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
