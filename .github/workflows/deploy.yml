@@ -69,7 +69,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           password: ${{ secrets.SSH_PASSWORD }}
           port: 22
-          command_timeout: 25m
+          command_timeout: 40m
           script_stop: true
           script: |
             set -euo pipefail
@@ -77,7 +77,19 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             sudo bash gpthub-gateway/scripts/cleanup-server-disk.sh || true
-            sudo docker compose pull
-            sudo docker compose up -d --no-build --force-recreate
+            pull_ok=0
+            for attempt in 1 2 3 4 5; do
+              if sudo docker compose pull; then
+                pull_ok=1
+                break
+              fi
+              echo "docker compose pull failed ($attempt/5), retry in 45s (GHCR TLS/network)..."
+              sleep 45
+            done
+            if [ "$pull_ok" -ne 1 ]; then
+              echo "GHCR still unreachable; building gpthub-gateway on server (fallback, slower)"
+              sudo docker compose build gpthub-gateway
+            fi
+            sudo docker compose up -d --force-recreate
             sudo bash scripts/setup-nginx.sh
             sudo bash scripts/install-boot-autostart.sh
