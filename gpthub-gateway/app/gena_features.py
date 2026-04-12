@@ -114,9 +114,10 @@ async def stream_presentation_pptx(
         '"image_mode":"auto|search|generate",'
         '"image_query":"ключи на английском для поиска картинок в интернете (для search/auto)",'
         '"image_prompt":"описание на английском для нейро-картинки если generate или fallback",'
-        '"sources":[{"title":"кратко","url":"https://..."}]}'
+        '"sources":[{"title":"кратко","url":"https://..."}],'
+        '"visual_style":"corporate|modern|bold|compact"}'
         "]}\n"
-        "Правила: 5–10 слайдов; разные гармоничные accent; "
+        "Правила: 5–10 слайдов; разные гармоничные accent; visual_style задаёт шрифты и плотность верстки; "
         "image_mode: search — только реальные фото/схемы из интернета; generate — только нейро-иллюстрация; "
         "auto — сначала подобрать изображение из веба, иначе нейро. "
         "sources — только реальные URL из контекста веб-поиска выше (0–2 на слайд). "
@@ -162,7 +163,7 @@ async def stream_presentation_pptx(
         fpath = static_dir / fname
         json_fname = f"{stem}.json"
 
-        build_colorful_pptx(slides_data, image_paths, fpath)
+        build_colorful_pptx(slides_data, image_paths, fpath, deck_title=deck_title)
         write_presentation_sidecar(
             static_dir / json_fname,
             deck_title,

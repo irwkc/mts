@@ -17,7 +17,7 @@ from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
-from pptx.util import Inches, Pt
+from pptx.util import Emu, Inches, Pt
 
 from app.config import settings
 from app.image_utils import image_api_response_to_sse_href
@@ -49,6 +49,105 @@ def _hex_to_rgb(h: str | None, idx: int) -> tuple[RGBColor, RGBColor]:
     bg = min(255, g // 5 + 204)
     bb = min(255, b // 5 + 204)
     return accent, RGBColor(br, bg, bb)
+
+
+def _rgb_tuple_from_hex(h: str | None, idx: int) -> tuple[int, int, int]:
+    raw = (h or "").strip().lstrip("#") or _DEFAULT_ACCENTS[idx % len(_DEFAULT_ACCENTS)].lstrip("#")
+    if len(raw) != 6 or not re.fullmatch(r"[0-9a-fA-F]{6}", raw):
+        raw = _DEFAULT_ACCENTS[idx % len(_DEFAULT_ACCENTS)].lstrip("#")
+    return int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)
+
+
+def _body_text_rgb(accent_rgb: tuple[int, int, int]) -> RGBColor:
+    """Текст тела: сланцевый оттенок с лёгким подтоном акцента."""
+    r, g, b = accent_rgb
+    tr = min(255, int(r * 0.18 + 23 * 0.82))
+    tg = min(255, int(g * 0.18 + 32 * 0.82))
+    tb = min(255, int(b * 0.18 + 48 * 0.82))
+    return RGBColor(tr, tg, tb)
+
+
+def _bullet_rgb(accent_rgb: tuple[int, int, int]) -> RGBColor:
+    r, g, b = accent_rgb
+    return RGBColor(min(255, int(r * 0.92 + 10)), min(255, int(g * 0.92 + 10)), min(255, int(b * 0.92 + 10)))
+
+
+def _darken_bar_strip(accent: RGBColor) -> RGBColor:
+    try:
+        v = int(accent)
+        r, g, b = (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF
+    except Exception:
+        r, g, b = 30, 64, 120
+    return RGBColor(max(0, int(r * 0.55)), max(0, int(g * 0.55)), max(0, int(b * 0.55)))
+
+
+# Пресеты: шрифты Office-совместимые (Calibri / Arial подставятся на любой ОС при открытии в PowerPoint)
+_VISUAL_PRESETS: dict[str, dict[str, Any]] = {
+    "corporate": {
+        "title_face": "Calibri Light",
+        "body_face": "Calibri",
+        "notes_face": "Calibri",
+        "title_pt": 32,
+        "subtitle_pt": 13,
+        "body_pt": 15,
+        "footer_pt": 9,
+        "bar_in": 1.38,
+        "title_bold": False,
+    },
+    "modern": {
+        "title_face": "Calibri Light",
+        "body_face": "Calibri",
+        "notes_face": "Calibri",
+        "title_pt": 34,
+        "subtitle_pt": 14,
+        "body_pt": 16,
+        "footer_pt": 9,
+        "bar_in": 1.42,
+        "title_bold": False,
+    },
+    "bold": {
+        "title_face": "Calibri",
+        "body_face": "Calibri",
+        "notes_face": "Calibri",
+        "title_pt": 36,
+        "subtitle_pt": 14,
+        "body_pt": 16,
+        "footer_pt": 10,
+        "bar_in": 1.45,
+        "title_bold": True,
+    },
+    "compact": {
+        "title_face": "Calibri Light",
+        "body_face": "Calibri",
+        "notes_face": "Calibri",
+        "title_pt": 28,
+        "subtitle_pt": 12,
+        "body_pt": 14,
+        "footer_pt": 8,
+        "bar_in": 1.28,
+        "title_bold": False,
+    },
+}
+
+
+def _preset_for_slide(slide_data: dict[str, Any], idx: int) -> dict[str, Any]:
+    name = str(slide_data.get("visual_style") or slide_data.get("theme") or "").strip().lower()
+    base = dict(_VISUAL_PRESETS["corporate"])
+    if name in _VISUAL_PRESETS:
+        base.update(_VISUAL_PRESETS[name])
+    else:
+        base.update(_VISUAL_PRESETS[("corporate", "modern", "bold", "compact")[idx % 4]])
+    return base
+
+
+def _set_paragraph_line_spacing(p, multiple: float = 1.12) -> None:
+    try:
+        p.line_spacing = multiple
+    except Exception:
+        try:
+            p.line_spacing = Pt(int(15 * multiple))
+        except Exception:
+            pass
 
 
 def parse_slides_json(raw: str) -> list[dict[str, Any]]:
@@ -229,8 +328,9 @@ def build_colorful_pptx(
     slides_data: list[dict[str, Any]],
     image_paths: list[Optional[Path]],
     out_path: Path,
+    deck_title: str = "",
 ) -> None:
-    """Собрать PPTX: цветной верхний бар, светлый фон, текст + картинка справа (если есть)."""
+    """Собрать PPTX: типографика, цвета из акцента, полосы, подвал, заметки."""
     prs = Presentation()
     try:
         blank = prs.slide_layouts[6]
@@ -239,9 +339,11 @@ def build_colorful_pptx(
 
     slide_w = prs.slide_width
     slide_h = prs.slide_height
-    bar_h = Inches(1.35)
+    n_slides = len(slides_data)
 
     for idx, slide_data in enumerate(slides_data):
+        preset = _preset_for_slide(slide_data, idx)
+        bar_h = Inches(float(preset["bar_in"]))
         img_path = image_paths[idx] if idx < len(image_paths) else None
         title = str(slide_data.get("title") or "Слайд")
         bullets = slide_data.get("bullets") or []
@@ -254,85 +356,163 @@ def build_colorful_pptx(
             accent_s = None
 
         accent, light_bg = _hex_to_rgb(accent_s, idx)
+        accent_rgb = _rgb_tuple_from_hex(accent_s, idx)
+        body_col = _body_text_rgb(accent_rgb)
+        bullet_col = _bullet_rgb(accent_rgb)
 
         slide = prs.slides.add_slide(blank)
 
-        # Светлая подложка
+        # Подложка контента
         body_rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, slide_w, slide_h)
         body_rect.fill.solid()
         body_rect.fill.fore_color.rgb = light_bg
         body_rect.line.fill.background()
 
-        # Верхняя цветная полоса
+        # Левый акцентный штрих (как у корпоративных шаблонов)
+        strip_w = Inches(0.07)
+        left_strip = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            0,
+            bar_h,
+            strip_w,
+            Emu(int(slide_h) - int(bar_h)),
+        )
+        left_strip.fill.solid()
+        left_strip.fill.fore_color.rgb = accent
+        left_strip.line.fill.background()
+
+        # Верхняя полоса
         top_bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, slide_w, bar_h)
         top_bar.fill.solid()
         top_bar.fill.fore_color.rgb = accent
         top_bar.line.fill.background()
 
-        # Заголовок (белый на полосе)
+        # Нижняя кромка полосы (глубже акцент)
+        strip_h = Inches(0.05)
+        bar_bottom = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            0,
+            Emu(int(bar_h) - int(strip_h)),
+            slide_w,
+            strip_h,
+        )
+        bar_bottom.fill.solid()
+        bar_bottom.fill.fore_color.rgb = _darken_bar_strip(accent)
+        bar_bottom.line.fill.background()
+
+        # Заголовок
         tx_title = slide.shapes.add_textbox(
-            Inches(0.35),
-            Inches(0.18),
-            Inches(9.3),
-            Inches(0.82),
+            Inches(0.42),
+            Inches(0.16),
+            Inches(9.2),
+            Inches(1.05),
         )
         tf_t = tx_title.text_frame
         tf_t.word_wrap = True
+        tf_t.margin_bottom = Pt(2)
         p0 = tf_t.paragraphs[0]
         p0.text = title
-        p0.font.size = Pt(28)
-        p0.font.bold = True
+        p0.font.name = preset["title_face"]
+        p0.font.size = Pt(int(preset["title_pt"]))
+        p0.font.bold = bool(preset.get("title_bold", False))
         p0.font.color.rgb = RGBColor(255, 255, 255)
         p0.alignment = PP_ALIGN.LEFT
+        _set_paragraph_line_spacing(p0, 1.05)
 
         subtitle = slide_data.get("subtitle")
         if isinstance(subtitle, str) and subtitle.strip():
             ps = tf_t.add_paragraph()
             ps.text = subtitle.strip()[:400]
-            ps.font.size = Pt(13)
+            ps.font.name = preset["body_face"]
+            ps.font.size = Pt(int(preset["subtitle_pt"]))
             ps.font.bold = False
-            ps.font.color.rgb = RGBColor(230, 235, 255)
-            ps.space_before = Pt(4)
+            ps.font.italic = True
+            ps.font.color.rgb = RGBColor(235, 240, 255)
+            ps.space_before = Pt(3)
+            _set_paragraph_line_spacing(ps, 1.1)
 
-        # Текст: слева; если есть картинка — уже колонка
-        left_margin = Inches(0.45)
-        top_body = bar_h + Inches(0.25)
-        body_h = Inches(5.85)
+        left_margin = Inches(0.52)
+        top_body = bar_h + Inches(0.28)
+        body_h = Inches(5.75)
         if img_path and img_path.is_file():
-            text_w = Inches(4.85)
+            text_w = Inches(4.75)
             tx_body = slide.shapes.add_textbox(left_margin, top_body, text_w, body_h)
         else:
-            tx_body = slide.shapes.add_textbox(left_margin, top_body, Inches(9.1), body_h)
+            tx_body = slide.shapes.add_textbox(left_margin, top_body, Inches(9.0), body_h)
 
         tf_b = tx_body.text_frame
         tf_b.word_wrap = True
         tf_b.vertical_anchor = MSO_ANCHOR.TOP
-        for i, bullet in enumerate(bullets[:12]):
+        tf_b.margin_left = Inches(0.06)
+        tf_b.margin_right = Inches(0.06)
+        tf_b.margin_top = Pt(2)
+
+        first_line = True
+        for bullet in bullets[:12]:
             text = str(bullet).strip()
             if not text:
                 continue
-            if i == 0:
+            if first_line:
                 p = tf_b.paragraphs[0]
+                first_line = False
             else:
                 p = tf_b.add_paragraph()
-            p.text = text
-            p.font.size = Pt(16)
-            p.font.color.rgb = RGBColor(55, 65, 81)
-            p.space_after = Pt(8)
+            p.text = ""
+            r_dot = p.add_run()
+            r_dot.text = "●  "
+            r_dot.font.name = preset["body_face"]
+            r_dot.font.size = Pt(max(11, int(preset["body_pt"]) - 1))
+            r_dot.font.color.rgb = bullet_col
+            r_txt = p.add_run()
+            r_txt.text = text
+            r_txt.font.name = preset["body_face"]
+            r_txt.font.size = Pt(int(preset["body_pt"]))
+            r_txt.font.color.rgb = body_col
+            p.space_after = Pt(10)
             p.level = 0
+            _set_paragraph_line_spacing(p, 1.14)
 
         if not bullets:
             p = tf_b.paragraphs[0]
             p.text = "—"
-            p.font.size = Pt(16)
-            p.font.color.rgb = RGBColor(120, 120, 120)
+            p.font.name = preset["body_face"]
+            p.font.size = Pt(int(preset["body_pt"]))
+            p.font.color.rgb = RGBColor(130, 130, 140)
 
-        # Картинка справа
         if img_path and img_path.is_file():
-            pic_left = Inches(5.45)
+            pic_left = Inches(5.42)
             pic_top = top_body
-            pic_w = Inches(4.15)
+            pic_w = Inches(4.2)
             slide.shapes.add_picture(str(img_path), pic_left, pic_top, width=pic_w, height=body_h)
+
+        # Подвал: название деки + номер слайда
+        foot_top = Emu(int(slide_h) - int(Inches(0.4)))
+        if (deck_title or "").strip():
+            ft_left = slide.shapes.add_textbox(
+                Inches(0.42),
+                foot_top,
+                Inches(7.5),
+                Inches(0.32),
+            )
+            tff = ft_left.text_frame
+            fp = tff.paragraphs[0]
+            fp.text = (deck_title or "").strip()[:140]
+            fp.font.name = preset["body_face"]
+            fp.font.size = Pt(int(preset["footer_pt"]))
+            fp.font.color.rgb = RGBColor(110, 118, 128)
+            fp.alignment = PP_ALIGN.LEFT
+        fn_box = slide.shapes.add_textbox(
+            Inches(8.85),
+            foot_top,
+            Inches(1.25),
+            Inches(0.32),
+        )
+        fnp = fn_box.text_frame.paragraphs[0]
+        fnp.text = f"{idx + 1} / {n_slides}"
+        fnp.font.name = preset["body_face"]
+        fnp.font.size = Pt(int(preset["footer_pt"]))
+        fnp.font.color.rgb = RGBColor(150, 155, 165)
+        fnp.alignment = PP_ALIGN.RIGHT
 
         sn_parts: list[str] = []
         sn = slide_data.get("speaker_notes") or slide_data.get("notes")
@@ -355,6 +535,11 @@ def build_colorful_pptx(
             try:
                 ns = slide.notes_slide
                 ns.notes_text_frame.text = "\n\n".join(sn_parts)[:15000]
+                for np in ns.notes_text_frame.paragraphs:
+                    np.font.name = preset["notes_face"]
+                    np.font.size = Pt(11)
+                    np.font.color.rgb = RGBColor(55, 55, 62)
+                    _set_paragraph_line_spacing(np, 1.12)
             except Exception as e:
                 logger.warning("speaker notes: %s", e)
 
