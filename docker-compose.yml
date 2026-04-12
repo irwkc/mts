@@ -1,9 +1,51 @@
 services:
+  # Локальный нейро-роутер (маленькая модель ~≤1 ГБ VRAM / CPU). Том сохраняет веса между перезапусками.
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-data:/root/.ollama
+    # Раскомментируйте при NVIDIA GPU на хосте (Linux):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 30s
+      retries: 8
+      start_period: 45s
+    restart: unless-stopped
+
+  # Одноразовая загрузка модели при первом деплое (нужен Docker Compose v2.20+).
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      ROUTER_MODEL: ${GPTHUB_ROUTER_LOCAL_MODEL:-qwen2.5:0.5b}
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull \"$$ROUTER_MODEL\""]
+    restart: "no"
+
   gpthub-gateway:
     image: ${GPTHUB_IMAGE:-ghcr.io/irwkc/mts-gpthub-gateway:latest}
     build:
       context: ./gpthub-gateway
       dockerfile: Dockerfile
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
+    # Доступ к Ollama на хосте вместо контейнера: в .env задайте GPTHUB_ROUTER_LOCAL_BASE_URL=http://host.docker.internal:11434/v1 и раскомментируйте:
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
     environment:
       MWS_API_BASE: ${MWS_API_BASE:-https://api.gpt.mws.ru/v1}
       MWS_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
@@ -15,6 +57,10 @@ services:
       GPTHUB_ROUTER_DEBUG: ${GPTHUB_ROUTER_DEBUG:-true}
       GPTHUB_ROUTER_USE_LLM: ${GPTHUB_ROUTER_USE_LLM:-true}
       GPTHUB_ROUTER_LLM_MODEL: ${GPTHUB_ROUTER_LLM_MODEL:-mts-anya}
+      # По умолчанию — контейнер ollama в этом compose. Явно пустое значение в .env — только MWS-роутер.
+      GPTHUB_ROUTER_LOCAL_BASE_URL: ${GPTHUB_ROUTER_LOCAL_BASE_URL:-http://ollama:11434/v1}
+      GPTHUB_ROUTER_LOCAL_MODEL: ${GPTHUB_ROUTER_LOCAL_MODEL:-qwen2.5:0.5b}
+      GPTHUB_ROUTER_LOCAL_API_KEY: ${GPTHUB_ROUTER_LOCAL_API_KEY:-}
       GPTHUB_ROUTER_RULES_FALLBACK: ${GPTHUB_ROUTER_RULES_FALLBACK:-true}
       # Без кавычек внутри ${...:-...} — иначе в UI попадут литеральные "..."
       GPTHUB_AUTO_MODEL_DISPLAY_NAME: "${GPTHUB_AUTO_MODEL_DISPLAY_NAME:-smart BAOBAB}"
@@ -82,3 +128,4 @@ services:
 volumes:
   gpthub-data:
   open-webui-data:
+  ollama-data:
