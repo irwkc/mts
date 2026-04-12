@@ -14,9 +14,9 @@ import httpx
 from fastapi import Request
 
 from app.config import settings
-from app.image_utils import image_api_response_to_data_url
+from app.image_utils import image_api_response_to_sse_href
 from app.mws_client import MWSClient
-from app.router_logic import IMAGE_GEN_RE, PRESENTATION_RE, gena_chat_target
+from app.router_logic import IMAGE_GEN_RE, MUSIC_GEN_RE, PRESENTATION_RE, gena_chat_target
 from app.web_tools import (
     deep_research_ddg,
     extract_urls,
@@ -122,7 +122,46 @@ async def stream_presentation_pptx(
     yield "data: [DONE]\n\n"
 
 
+async def stream_music_demo(
+    request: Request,
+    client: MWSClient,
+    prompt: str,
+    available_ids: set[str],
+) -> AsyncGenerator[str, None]:
+    """SSE: статусы + ссылка на демо MP3 (как у картинки, но для музыки)."""
+    from app.music_demo import build_mp3_from_prompt, melody_notes_from_llm
+
+    yield sse_delta("*(Демо-мелодия: подбираю ноты…)*\n\n")
+    mid = gena_chat_target()
+    if mid not in available_ids:
+        if settings.default_llm in available_ids:
+            mid = settings.default_llm
+        else:
+            mid = next(iter(sorted(available_ids - {settings.auto_model_id})), settings.default_llm)
+    try:
+        llm_notes = await melody_notes_from_llm(client, prompt, mid)
+        yield sse_delta("*(Демо-мелодия: синтез MP3…)*\n\n")
+        mp3 = build_mp3_from_prompt(prompt, llm_notes)
+    except Exception as e:
+        logger.exception("music demo stream")
+        yield sse_delta(f"Не удалось сгенерировать MP3: {e}\n\n")
+        yield "data: [DONE]\n\n"
+        return
+
+    static_dir = settings.data_dir / "static" / "music"
+    static_dir.mkdir(parents=True, exist_ok=True)
+    fname = f"demo_{uuid.uuid4().hex[:12]}.mp3"
+    (static_dir / fname).write_bytes(mp3)
+    url = public_static_url(request, f"static/music/{fname}")
+    yield sse_delta(
+        "Демо-мелодия (простой синтез по нотам, не студийный саундтрек):\n\n"
+        f"[Скачать MP3]({url})\n\n"
+    )
+    yield "data: [DONE]\n\n"
+
+
 async def stream_image_markdown(
+    request: Request,
     client: MWSClient,
     prompt: str,
     available_ids: set[str],
@@ -168,12 +207,18 @@ async def stream_image_markdown(
                 "prompt": prompt[:4000],
                 "n": 1,
                 "size": "1024x1024",
-                "response_format": "b64_json",  # сразу base64
+                "response_format": "b64_json",  # сразу base64 → сохраняем в static, не в SSE
             },
         )
-        url = await image_api_response_to_data_url(img_resp)
-        if url:
-            yield sse_delta(f"![Изображение]({url})\n\n")
+        href = await image_api_response_to_sse_href(img_resp, settings.data_dir)
+        if href.startswith("http://") or href.startswith("https://"):
+            display = href
+        elif href.startswith("static/"):
+            display = public_static_url(request, href)
+        else:
+            display = href
+        if display:
+            yield sse_delta(f"![Изображение]({display})\n\n")
         else:
             yield sse_delta("Не удалось получить ссылку на изображение.\n\n")
     except Exception as e:
@@ -249,10 +294,23 @@ def should_stream_deep_gena(last_text: str, stream: bool) -> bool:
     return bool(stream and last_text and should_run_deep_research(last_text))
 
 
+def should_stream_music_gena(
+    last_text: str, stream: bool, has_image: bool, has_audio: bool
+) -> bool:
+    return bool(
+        stream
+        and last_text
+        and not has_image
+        and not has_audio
+        and MUSIC_GEN_RE.search(last_text)
+    )
+
+
 def should_stream_image_gena(last_text: str, stream: bool, has_image: bool) -> bool:
     return bool(
         stream
         and last_text
         and not has_image
         and IMAGE_GEN_RE.search(last_text)
+        and not MUSIC_GEN_RE.search(last_text)
     )

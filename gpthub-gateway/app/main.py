@@ -22,9 +22,11 @@ from app.gena_features import (
     public_static_url,
     should_stream_deep_gena,
     should_stream_image_gena,
+    should_stream_music_gena,
     should_stream_presentation,
     stream_deep_research,
     stream_image_markdown,
+    stream_music_demo,
     stream_presentation_pptx,
 )
 from app.music_demo import build_mp3_from_prompt, melody_notes_from_llm
@@ -212,6 +214,7 @@ _static_root = settings.data_dir / "static"
 _static_root.mkdir(parents=True, exist_ok=True)
 (_static_root / "presentations").mkdir(parents=True, exist_ok=True)
 (_static_root / "music").mkdir(parents=True, exist_ok=True)
+(_static_root / "images").mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(_static_root)), name="static")
 
 _models_cache: dict[str, Any] = {"t": 0.0, "data": None}
@@ -448,6 +451,8 @@ async def maybe_image_generation_chat(
     want = "image_gen" in route_note
     lu = last_user_message(messages)
     text = _content_to_text(lu.get("content") if lu else None)
+    if text and MUSIC_GEN_RE.search(text):
+        return None
     if not want and not IMAGE_GEN_RE.search(text):
         return None
     prompt = text
@@ -533,9 +538,17 @@ async def chat_completions(request: Request) -> Response:
                 media_type="text/event-stream",
                 headers=dict(_SSE_HEADERS),
             )
+        if should_stream_music_gena(
+            last_text, stream, message_has_image(messages), message_has_audio(messages)
+        ):
+            return StreamingResponse(
+                stream_music_demo(request, _client, last_text, available),
+                media_type="text/event-stream",
+                headers=dict(_SSE_HEADERS),
+            )
         if should_stream_image_gena(last_text, stream, message_has_image(messages)):
             return StreamingResponse(
-                stream_image_markdown(_client, last_text, available),
+                stream_image_markdown(request, _client, last_text, available),
                 media_type="text/event-stream",
                 headers=dict(_SSE_HEADERS),
             )
