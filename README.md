@@ -27,12 +27,12 @@ bash scripts/compose-up-verbose.sh
 
 ## Режимы модели
 
-- **`gpthub-auto`** — автоматический выбор: VLM для сообщений с изображениями, сценарии «найди в интернете» / ссылки, обычный чат для текста; запросы вида «нарисуй / сгенерируй изображение» обрабатываются через `POST /v1/images/generations`. В логах шлюза видно решение роутера; при `GPTHUB_ROUTER_DEBUG=true` (по умолчанию) в system добавляется строка `[GPTHub route: …]`. Open WebUI может слать id как `openai/gpthub-auto` — шлюз нормализует до `gpthub-auto`.
+- **`gpthub-auto`** — автоматический выбор по правилам **gena** (перехваты: презентации, картинки, deep research; иначе `pick_route_gena`: длинные тексты, код, обычный чат). VLM для сообщений с изображениями; «найди в интернете» / ссылки; «нарисуй» — `POST /v1/images/generations`. При `GPTHUB_ROUTER_DEBUG=true` в system добавляется `[GPTHub route: …]`. Open WebUI может слать id как `openai/gpthub-auto` — шлюз нормализует до `gpthub-auto`.
 - Любая другая модель из списка **GET /v1/models** — ручной выбор (шлюз не переопределяет `model`).
 
 Материалы сдачи: [docs/FEATURES_CHECKLIST.md](docs/FEATURES_CHECKLIST.md), [docs/PRESENTATION.md](docs/PRESENTATION.md), сценарий записи видео — [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
-Голос и диктофон: в compose заданы `AUDIO_STT_*` и `AUDIO_TTS_*` на шлюз (`/v1/audio/transcriptions`, `/v1/audio/speech` → MWS). Модель Whisper — `ASR_MODEL` в `.env`. Нейро-роутер: `GPTHUB_ROUTER_USE_LLM=true`, модель классификации — `GPTHUB_ROUTER_LLM_MODEL` (та же MWS API, по умолчанию `mts-anya`).
+Голос и диктофон: в compose заданы `AUDIO_STT_*` и `AUDIO_TTS_*` на шлюз (`/v1/audio/transcriptions`, `/v1/audio/speech` → MWS). Модель Whisper — `ASR_MODEL` в `.env`. Режим роутера по умолчанию: `GPTHUB_ROUTER_MODE=gena` (без отдельного LLM-классификатора).
 
 ## Переменные окружения
 

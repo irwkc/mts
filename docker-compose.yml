@@ -1,25 +1,4 @@
 services:
-  # Локальный нейро-роутер (маленькая модель ~≤1 ГБ VRAM / CPU). Том сохраняет веса между перезапусками.
-  ollama:
-    image: ollama/ollama:latest
-    volumes:
-      - ollama-data:/root/.ollama
-    # Раскомментируйте при NVIDIA GPU на хосте (Linux):
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
-    healthcheck:
-      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
-      interval: 15s
-      timeout: 30s
-      retries: 8
-      start_period: 45s
-    restart: unless-stopped
-
   # Долгая память в стиле gena (семантический поиск; опционально, том на диске).
   chroma:
     image: chromadb/chroma:latest
@@ -29,34 +8,14 @@ services:
       - chroma-data:/data
     restart: unless-stopped
 
-  # Одноразовая загрузка модели при первом деплое (нужен Docker Compose v2.20+).
-  ollama-pull:
-    image: ollama/ollama:latest
-    depends_on:
-      ollama:
-        condition: service_healthy
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-      ROUTER_MODEL: ${GPTHUB_ROUTER_LOCAL_MODEL:-qwen2.5:0.5b}
-    entrypoint: ["/bin/sh", "-c"]
-    command: ["ollama pull \"$$ROUTER_MODEL\""]
-    restart: "no"
-
   gpthub-gateway:
     image: ${GPTHUB_IMAGE:-ghcr.io/irwkc/mts-gpthub-gateway:latest}
     build:
       context: ./gpthub-gateway
       dockerfile: Dockerfile
     depends_on:
-      ollama:
-        condition: service_healthy
-      ollama-pull:
-        condition: service_completed_successfully
       chroma:
         condition: service_started
-    # Доступ к Ollama на хосте вместо контейнера: в .env задайте GPTHUB_ROUTER_LOCAL_BASE_URL=http://host.docker.internal:11434/v1 и раскомментируйте:
-    # extra_hosts:
-    #   - "host.docker.internal:host-gateway"
     environment:
       MWS_API_BASE: ${MWS_API_BASE:-https://api.gpt.mws.ru/v1}
       MWS_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
@@ -66,21 +25,13 @@ services:
       ASR_MODEL: ${ASR_MODEL:-whisper-large-v3}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
       GPTHUB_ROUTER_DEBUG: ${GPTHUB_ROUTER_DEBUG:-true}
-      # llm — нейро-роутер (Ollama при GPTHUB_ROUTER_LOCAL_BASE_URL); gena — только regex; legacy — старые правила
-      GPTHUB_ROUTER_MODE: ${GPTHUB_ROUTER_MODE:-llm}
+      GPTHUB_ROUTER_MODE: ${GPTHUB_ROUTER_MODE:-gena}
       CHROMA_HOST: ${CHROMA_HOST:-chroma}
       CHROMA_PORT: ${CHROMA_PORT:-8000}
       GPTHUB_PUBLIC_BASE_URL: ${GPTHUB_PUBLIC_BASE_URL:-}
       GPTHUB_GENA_CODE_MODEL: ${GPTHUB_GENA_CODE_MODEL:-qwen3-coder-480b-a35b}
       GPTHUB_GENA_LONG_DOC_MODEL: ${GPTHUB_GENA_LONG_DOC_MODEL:-cotype-pro-vl-32b}
-      GPTHUB_ROUTER_USE_LLM: ${GPTHUB_ROUTER_USE_LLM:-true}
-      GPTHUB_ROUTER_LLM_MODEL: ${GPTHUB_ROUTER_LLM_MODEL:-mts-anya}
-      # По умолчанию — контейнер ollama в этом compose. Явно пустое значение в .env — только MWS-роутер.
-      GPTHUB_ROUTER_LOCAL_BASE_URL: ${GPTHUB_ROUTER_LOCAL_BASE_URL:-http://ollama:11434/v1}
-      GPTHUB_ROUTER_LOCAL_MODEL: ${GPTHUB_ROUTER_LOCAL_MODEL:-qwen2.5:0.5b}
-      GPTHUB_ROUTER_LOCAL_API_KEY: ${GPTHUB_ROUTER_LOCAL_API_KEY:-}
-      GPTHUB_ROUTER_RULES_FALLBACK: ${GPTHUB_ROUTER_RULES_FALLBACK:-true}
-      # Без кавычек внутри ${...:-...} — иначе в UI попадут литеральные "..."
+      GPTHUB_GENA_CHAT_MODEL: ${GPTHUB_GENA_CHAT_MODEL:-}
       GPTHUB_AUTO_MODEL_DISPLAY_NAME: "${GPTHUB_AUTO_MODEL_DISPLAY_NAME:-smart BAOBAB}"
     volumes:
       - gpthub-data:/data
@@ -110,7 +61,6 @@ services:
       WEBUI_ADMIN_PASSWORD: ${WEBUI_ADMIN_PASSWORD:-123}
       WEBUI_ADMIN_NAME: ${WEBUI_ADMIN_NAME:-Test}
       ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
-      # Иначе UI ждёт Ollama и показывает «No models» без подключения провайдера
       ENABLE_OLLAMA_API: "false"
       ENABLE_OPENAI_API: "true"
       OPENAI_API_BASE_URL: http://gpthub-gateway:8080/v1
@@ -122,7 +72,6 @@ services:
       # Модель по умолчанию в UI — авто-роутер (см. также нормализацию provider/id в шлюзе)
       DEFAULT_MODELS: '["gpthub-auto"]'
       # Голос / диктофон: STT и TTS через тот же шлюз → MWS
-      # Без AUDIO_STT_ENGINE=openai UI берёт локальный Whisper в контейнере (не ваш API) — диктовка ломается.
       AUDIO_STT_ENGINE: openai
       AUDIO_STT_OPENAI_API_BASE_URL: http://gpthub-gateway:8080/v1
       AUDIO_STT_OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
@@ -146,5 +95,4 @@ services:
 volumes:
   gpthub-data:
   open-webui-data:
-  ollama-data:
   chroma-data:

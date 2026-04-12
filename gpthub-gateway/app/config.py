@@ -83,8 +83,8 @@ class Settings(BaseSettings):
 
     # Префикс [GPTHub route: …] в system при true (демо / отладка)
     router_debug: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_DEBUG")
-    # llm — нейро-роутер (локальный Ollama при GPTHUB_ROUTER_LOCAL_BASE_URL, иначе MWS); gena — правила regex; legacy — старые правила шлюза
-    router_mode: str = Field(default="llm", validation_alias="GPTHUB_ROUTER_MODE")
+    # gena — как gena/router select_model + перехваты; legacy — старые правила шлюза (llm → gena)
+    router_mode: str = Field(default="gena", validation_alias="GPTHUB_ROUTER_MODE")
     gena_code_model: str = Field(
         default="qwen3-coder-480b-a35b",
         validation_alias="GPTHUB_GENA_CODE_MODEL",
@@ -93,28 +93,12 @@ class Settings(BaseSettings):
         default="cotype-pro-vl-32b",
         validation_alias="GPTHUB_GENA_LONG_DOC_MODEL",
     )
+    # Аналог mws-gpt-alpha в gena/router — «обычный диалог»
+    gena_chat_model: str = Field(default="", validation_alias="GPTHUB_GENA_CHAT_MODEL")
     gena_long_doc_word_threshold: int = Field(
         default=600,
         validation_alias="GPTHUB_GENA_LONG_DOC_WORDS",
     )
-    # Авторежим: выбор модели через один вызов LLM к MWS (иначе — правила pick_route_deterministic)
-    router_use_llm: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_USE_LLM")
-    router_llm_model: str = Field(default="mts-anya", validation_alias="GPTHUB_ROUTER_LLM_MODEL")
-    # Локальный нейро-роутер (OpenAI-compatible: Ollama :11434/v1, llama-server и т.д.) — без MWS
-    router_local_base_url: str = Field(
-        default="",
-        validation_alias="GPTHUB_ROUTER_LOCAL_BASE_URL",
-    )
-    router_local_model: str = Field(
-        default="qwen2.5:0.5b",
-        validation_alias="GPTHUB_ROUTER_LOCAL_MODEL",
-    )
-    router_local_api_key: str = Field(
-        default="",
-        validation_alias="GPTHUB_ROUTER_LOCAL_API_KEY",
-    )
-    # Если false — при сбое нейро-роутера не подставлять правила по ключевым словам, а вернуть 503
-    router_rules_fallback: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_RULES_FALLBACK")
 
     # Публичный URL шлюза для ссылок на /static/... (презентации). Пусто — берётся из заголовка запроса.
     public_base_url: str = Field(default="", validation_alias="GPTHUB_PUBLIC_BASE_URL")
@@ -125,10 +109,12 @@ class Settings(BaseSettings):
     @field_validator("router_mode", mode="before")
     @classmethod
     def normalize_router_mode(cls, v: object) -> str:
-        s = str(v or "llm").strip().lower()
-        if s in ("llm", "gena", "legacy"):
+        s = str(v or "gena").strip().lower()
+        if s == "llm":
+            return "gena"
+        if s in ("gena", "legacy"):
             return s
-        return "llm"
+        return "gena"
 
 
 settings = Settings()

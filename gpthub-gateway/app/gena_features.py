@@ -15,7 +15,7 @@ from fastapi import Request
 
 from app.config import settings
 from app.mws_client import MWSClient
-from app.router_logic import IMAGE_GEN_RE, PRESENTATION_RE
+from app.router_logic import IMAGE_GEN_RE, PRESENTATION_RE, gena_chat_target
 from app.web_tools import (
     deep_research_ddg,
     extract_urls,
@@ -137,7 +137,7 @@ async def stream_image_markdown(
         enhance = await client.post_json(
             "/chat/completions",
             {
-                "model": _pick_model(settings.default_llm, available_ids, settings.default_llm),
+                "model": _pick_model(gena_chat_target(), available_ids, settings.default_llm),
                 "messages": [
                     {
                         "role": "system",

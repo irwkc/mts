@@ -44,11 +44,32 @@ _GENA_LONG_DOC_KEYWORDS = re.compile(
 )
 
 
+def gena_chat_target() -> str:
+    """Модель «обычного чата» (аналог mws-gpt-alpha в gena/router)."""
+    g = (settings.gena_chat_model or "").strip()
+    return g if g else settings.default_llm
+
+
+def strip_gena_assistant_markers(messages: list[dict[str, Any]]) -> None:
+    """Убрать префиксы перехватов из истории, чтобы модель не копировала их."""
+    pat = re.compile(
+        r"^\*\((?:Авто-выбор модели|Рисую изображение|Deep Research|Презентация)[^*]*\)\*\s*\n*",
+        re.MULTILINE,
+    )
+    for m in messages or []:
+        if m.get("role") != "assistant":
+            continue
+        c = m.get("content")
+        if isinstance(c, str):
+            m["content"] = pat.sub("", c, count=1)
+
+
 def _coerce_available_model(preferred: str, available_ids: set[str]) -> str:
     """Вернуть preferred, если есть в каталоге MWS, иначе первый подходящий fallback."""
     if preferred in available_ids:
         return preferred
     for alt in (
+        gena_chat_target(),
         settings.default_llm,
         settings.gena_code_model,
         settings.gena_long_doc_model,
@@ -79,14 +100,12 @@ def pick_route_gena(
                 return candidate, "gena:vision"
 
     if message_has_audio(messages):
-        dm = settings.default_llm
-        return _coerce_available_model(dm, available_ids), "gena:audio_then_llm"
+        return _coerce_available_model(gena_chat_target(), available_ids), "gena:audio_then_llm"
 
     lu = last_user_message(messages)
     text = _content_to_text(lu.get("content") if lu else None)
     if IMAGE_GEN_RE.search(text):
-        dm = settings.default_llm
-        return _coerce_available_model(dm, available_ids), "gena:image_gen_intent"
+        return _coerce_available_model(gena_chat_target(), available_ids), "gena:image_gen_intent"
 
     user_texts = " ".join(
         _content_to_text(m.get("content")) for m in messages or [] if m.get("role") == "user"
@@ -103,7 +122,7 @@ def pick_route_gena(
         mid = _coerce_available_model(settings.gena_code_model, available_ids)
         return mid, "gena:code"
 
-    mid = _coerce_available_model(settings.default_llm, available_ids)
+    mid = _coerce_available_model(gena_chat_target(), available_ids)
     return mid, "gena:chat"
 
 

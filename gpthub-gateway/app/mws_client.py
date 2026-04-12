@@ -36,23 +36,6 @@ class MWSClient:
             r.raise_for_status()
             return r.json()
 
-    async def chat_completions_router(self, body: dict[str, Any]) -> dict[str, Any]:
-        """
-        POST /chat/completions для нейро-роутера.
-        Если API не принимает response_format — один повтор без него.
-        """
-        try:
-            return await self.post_json("/chat/completions", body)
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code in (400, 422) and body.get("response_format"):
-                logger.warning(
-                    "chat/completions: retry without response_format (%s)",
-                    e.response.text[:300],
-                )
-                b2 = {k: v for k, v in body.items() if k != "response_format"}
-                return await self.post_json("/chat/completions", b2)
-            raise
-
     async def embeddings(self, texts: list[str]) -> list[list[float]]:
         data = await self.post_json(
             "/embeddings",

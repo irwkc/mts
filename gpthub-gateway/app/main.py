@@ -32,7 +32,6 @@ from app.memory_context import (
 from app.memory_store import MemoryStore
 from app.mws_client import MWSClient
 from app.rag_store import RAGStore, extract_embeddable_documents
-from app.router_llm import RouterLLMFailed, resolve_auto_route_with_llm
 from app.router_logic import (
     IMAGE_GEN_RE,
     apply_manual_route,
@@ -41,6 +40,7 @@ from app.router_logic import (
     normalize_requested_model,
     pick_route_deterministic,
     pick_route_gena,
+    strip_gena_assistant_markers,
     _content_to_text,
     message_has_image,
     message_has_audio,
@@ -445,43 +445,21 @@ async def chat_completions(request: Request) -> Response:
     body = await request.json()
     messages: list[dict[str, Any]] = list(body.get("messages") or [])
     messages = await maybe_compress_messages_for_context(_client, messages)
+    strip_gena_assistant_markers(messages)
+
     user_id = (body.get("user") or "default")[:128]
     requested_model = (body.get("model") or "").strip()
     stream = bool(body.get("stream"))
 
     available = await get_available_model_ids()
     req = normalize_requested_model(requested_model)
-    router_mode = (settings.router_mode or "llm").strip().lower()
-    try:
-        if req and req != settings.auto_model_id:
-            resolved_model, route_note = apply_manual_route(req, available)
-        elif router_mode == "gena":
-            resolved_model, route_note = pick_route_gena(messages, available)
-        elif router_mode == "legacy":
-            resolved_model, route_note = pick_route_deterministic(messages, available)
-        elif settings.router_use_llm:
-            resolved_model, route_note = await resolve_auto_route_with_llm(
-                messages, available, _client
-            )
-        else:
-            resolved_model, route_note = pick_route_deterministic(messages, available)
-    except RouterLLMFailed as e:
-        return JSONResponse(
-            {"error": {"message": e.message, "type": "router_llm_failed"}},
-            status_code=503,
-        )
-    logger.info(
-        "chat route requested=%r -> model=%s note=%s",
-        requested_model,
-        resolved_model,
-        route_note,
-    )
+    auto_mode = not req or req == settings.auto_model_id
 
     lu = last_user_message(messages)
     last_text = _content_to_text(lu.get("content") if lu else None)
 
-    # gena-стримы: презентация, deep research, картинка (до общего system-контекста)
-    if stream and last_text:
+    # Быстрые перехваты gena (только авто-модель): стримы — до роутера; картинка JSON — до роутера.
+    if auto_mode and last_text and stream:
         if should_stream_presentation(last_text, stream):
             return StreamingResponse(
                 stream_presentation_pptx(request, _client, last_text, available),
@@ -500,6 +478,25 @@ async def chat_completions(request: Request) -> Response:
                 media_type="text/event-stream",
                 headers=dict(_SSE_HEADERS),
             )
+
+    if not stream:
+        img_early = await maybe_image_generation_chat(messages, "")
+        if img_early:
+            return JSONResponse(img_early)
+
+    router_mode = (settings.router_mode or "gena").strip().lower()
+    if req and req != settings.auto_model_id:
+        resolved_model, route_note = apply_manual_route(req, available)
+    elif router_mode == "legacy":
+        resolved_model, route_note = pick_route_deterministic(messages, available)
+    else:
+        resolved_model, route_note = pick_route_gena(messages, available)
+    logger.info(
+        "chat route requested=%r -> model=%s note=%s",
+        requested_model,
+        resolved_model,
+        route_note,
+    )
 
     # Долгосрочная память + RAG scope
     extra_parts: list[str] = []
@@ -542,10 +539,6 @@ async def chat_completions(request: Request) -> Response:
     messages = _inject_system(messages, "\n\n".join(extra_parts))
     if settings.router_debug:
         messages = inject_router_debug(messages, route_note, resolved_model)
-
-    img_chat = await maybe_image_generation_chat(messages, route_note)
-    if img_chat:
-        return JSONResponse(img_chat)
 
     new_body = dict(body)
     new_body["model"] = resolved_model
