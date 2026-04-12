@@ -19,8 +19,8 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  # Одно имя образа в GHCR: ghcr.io/<owner>/mts-gpthub-gateway
   IMAGE_NAME: mts-gpthub-gateway
+  IMAGE_OPENWEBUI: mts-open-webui-baobab
 
 jobs:
   build-and-push:
@@ -45,6 +45,15 @@ jobs:
           context: ./gpthub-gateway
           push: true
           tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Open WebUI (BAOBAB theme)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./open-webui-baobab
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_OPENWEBUI }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

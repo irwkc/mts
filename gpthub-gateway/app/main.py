@@ -17,7 +17,7 @@ from app.config import settings
 from app.memory_store import MemoryStore
 from app.mws_client import MWSClient
 from app.rag_store import RAGStore, extract_embeddable_documents
-from app.router_llm import resolve_auto_route_with_llm
+from app.router_llm import RouterLLMFailed, resolve_auto_route_with_llm
 from app.router_logic import (
     IMAGE_GEN_RE,
     apply_manual_route,
@@ -38,6 +38,45 @@ from app.web_tools import (
     should_run_web_search,
     web_search_ddg,
 )
+
+
+def _normalize_assistant_message_content(msg: dict[str, Any]) -> None:
+    """Content ответа: строка или массив частей (OpenAI multimodal) — в одну строку для UI."""
+    c = msg.get("content")
+    if isinstance(c, str):
+        return
+    if isinstance(c, list):
+        parts: list[str] = []
+        for p in c:
+            if isinstance(p, dict):
+                t = p.get("text")
+                if p.get("type") == "text" and isinstance(t, str):
+                    parts.append(t)
+                elif isinstance(t, str):
+                    parts.append(t)
+            elif isinstance(p, str):
+                parts.append(p)
+        msg["content"] = "".join(parts) if parts else ""
+    elif c is None:
+        msg["content"] = ""
+
+
+def _delta_content_to_text(delta: dict[str, Any]) -> str:
+    c = delta.get("content")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        parts: list[str] = []
+        for p in c:
+            if isinstance(p, dict) and p.get("type") == "text":
+                t = p.get("text")
+                if isinstance(t, str):
+                    parts.append(t)
+            elif isinstance(p, str):
+                parts.append(p)
+        return "".join(parts)
+    return ""
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("gpthub")
@@ -84,8 +123,8 @@ def merge_models_payload(mws_json: dict[str, Any]) -> dict[str, Any]:
                 "id": settings.auto_model_id,
                 "object": "model",
                 "created": int(time.time()),
-                "owned_by": "gpthub",
-                "name": "GPTHub Auto (router)",
+                "owned_by": "baobab",
+                "name": settings.auto_model_display_name,
             },
         )
     return {"object": "list", "data": data}
@@ -280,14 +319,20 @@ async def chat_completions(request: Request) -> Response:
 
     available = await get_available_model_ids()
     req = normalize_requested_model(requested_model)
-    if req and req != settings.auto_model_id:
-        resolved_model, route_note = apply_manual_route(req, available)
-    elif settings.router_use_llm:
-        resolved_model, route_note = await resolve_auto_route_with_llm(
-            messages, available, _client
+    try:
+        if req and req != settings.auto_model_id:
+            resolved_model, route_note = apply_manual_route(req, available)
+        elif settings.router_use_llm:
+            resolved_model, route_note = await resolve_auto_route_with_llm(
+                messages, available, _client
+            )
+        else:
+            resolved_model, route_note = pick_route_deterministic(messages, available)
+    except RouterLLMFailed as e:
+        return JSONResponse(
+            {"error": {"message": e.message, "type": "router_llm_failed"}},
+            status_code=503,
         )
-    else:
-        resolved_model, route_note = pick_route_deterministic(messages, available)
     logger.info(
         "chat route requested=%r -> model=%s note=%s",
         requested_model,
@@ -348,11 +393,23 @@ async def chat_completions(request: Request) -> Response:
                 {"error": {"message": e.response.text, "type": "upstream_error"}},
                 status_code=e.response.status_code,
             )
+        try:
+            ch0 = (out.get("choices") or [{}])[0]
+            msg = ch0.get("message")
+            if isinstance(msg, dict):
+                _normalize_assistant_message_content(msg)
+                if msg.get("content") == "":
+                    logger.warning(
+                        "upstream returned empty assistant content (model=%s)",
+                        resolved_model,
+                    )
+        except Exception as ex:
+            logger.debug("normalize assistant: %s", ex)
         # сохранить обмен
         if _memory and last_text:
             try:
-                ch = out["choices"][0]["message"]["content"]
-                if isinstance(ch, str):
+                ch = (out.get("choices") or [{}])[0].get("message", {}).get("content")
+                if isinstance(ch, str) and ch:
                     await _memory.add_exchange(user_id, last_text[:2000], ch[:4000])
             except Exception as ex:
                 logger.debug("memory save: %s", ex)
@@ -385,8 +442,8 @@ async def chat_completions(request: Request) -> Response:
                         try:
                             j = json.loads(payload)
                             delta = (j.get("choices") or [{}])[0].get("delta") or {}
-                            c = delta.get("content")
-                            if isinstance(c, str):
+                            c = _delta_content_to_text(delta)
+                            if c:
                                 acc.append(c)
                         except json.JSONDecodeError:
                             pass

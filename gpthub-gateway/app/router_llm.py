@@ -1,6 +1,7 @@
 """
 Автовыбор модели через один вызов chat/completions к MWS (нейро-роутер).
-При ошибке парсинга / API — fallback на pick_route_deterministic.
+При ошибке парсинга / API — по умолчанию fallback на pick_route_deterministic;
+при GPTHUB_ROUTER_RULES_FALLBACK=false — исключение RouterLLMFailed (503).
 """
 
 from __future__ import annotations
@@ -18,9 +19,19 @@ from app.router_logic import (
     message_has_audio,
     message_has_image,
     pick_route_deterministic,
+    try_fast_path_default_llm_for_simple_turn,
 )
 
 logger = logging.getLogger("gpthub.router_llm")
+
+
+class RouterLLMFailed(Exception):
+    """Нейро-роутер не смог выбрать модель и откат на правила запрещён."""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
 
 def _extract_json_object(text: str) -> dict[str, Any]:
     t = (text or "").strip()
@@ -38,6 +49,24 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     raise ValueError("router JSON is not an object")
 
 
+def _match_model_id(raw: str, available_ids: set[str]) -> str | None:
+    """Сопоставить ответ LLM с id из каталога (регистр, кавычки, частичное совпадение)."""
+    s = (raw or "").strip().strip("\"'")
+    if not s:
+        return None
+    if s in available_ids:
+        return s
+    low = s.lower()
+    for aid in available_ids:
+        if aid.lower() == low:
+            return aid
+    # Однозначное вхождение подстроки (модель вернула укороченный id)
+    subs = [a for a in available_ids if low in a.lower() or a.lower() in low]
+    if len(subs) == 1:
+        return subs[0]
+    return None
+
+
 async def resolve_auto_route_with_llm(
     messages: list[dict[str, Any]],
     available_ids: set[str],
@@ -49,6 +78,11 @@ async def resolve_auto_route_with_llm(
     candidates = sorted(x for x in available_ids if x and x != settings.auto_model_id)
     if not candidates:
         return pick_route_deterministic(messages, available_ids)
+
+    fast = try_fast_path_default_llm_for_simple_turn(messages, available_ids)
+    if fast:
+        logger.info("LLM router skipped (simple turn) -> %s %s", fast[0], fast[1])
+        return fast
 
     router_model = settings.router_llm_model
     if router_model not in available_ids:
@@ -62,15 +96,19 @@ async def resolve_auto_route_with_llm(
     has_aud = message_has_audio(messages)
 
     ids_list = ", ".join(candidates[:100])
+    primary = settings.default_llm if settings.default_llm in candidates else candidates[0]
     system = (
-        "Ты маршрутизатор моделей MWS GPT. По запросу пользователя выбери ровно один model_id "
-        "из списка доступных id (они уже проверены каталогом API).\n"
+        "Ты маршрутизатор моделей MWS GPT. По последнему запросу пользователя выбери ровно один model_id "
+        "СТРОГО из списка доступных id (копируй строку символ в символ).\n"
         f"Доступные model_id: {ids_list}\n"
-        "Правила: есть изображение во входе — выбери vision-модель (gpt-4o, cotype-pro-vl-32b и т.п., что есть в списке). "
-        "Есть только текст — основную LLM (mts-anya, mws-gpt-alpha и т.д.). "
-        "Есть аудио — после транскрипции пойдёт текст; можно выбрать основную LLM.\n"
-        "Ответь ТОЛЬКО JSON без пояснений: "
-        '{"model_id":"<id из списка>","route":"краткая метка на англ."}'
+        f"Обычный диалог, приветствия, вопросы, код без картинок — выбирай основную текстовую модель, "
+        f"по возможности: {primary}.\n"
+        "Есть изображение во входе — vision-модель из списка (gpt-4o, cotype-pro-vl-32b и т.п.). "
+        "Явная просьба нарисовать/сгенерировать картинку — всё равно выбери текстовую модель для формулировки; "
+        "генерация изображения выполняется отдельным шагом.\n"
+        "Есть аудио — основная LLM (после транскрипции будет текст).\n"
+        "Никогда не придумывай id вне списка. Ответь ТОЛЬКО JSON: "
+        '{"model_id":"<id из списка>","route":"краткая_метка_латиницей"}'
     )
     user_msg = (
         f"has_image={has_img} has_audio={has_aud}\n"
@@ -85,20 +123,35 @@ async def resolve_auto_route_with_llm(
         ],
         "temperature": 0.05,
         "max_tokens": 256,
+        "response_format": {"type": "json_object"},
     }
 
+    def _fallback_or_raise(exc: BaseException, msg: str) -> tuple[str, str]:
+        if settings.router_rules_fallback:
+            logger.warning("LLM router: %s — fallback to rules (%s)", msg, exc)
+            return pick_route_deterministic(messages, available_ids)
+        raise RouterLLMFailed(msg) from exc
+
     try:
-        out = await client.post_json("/chat/completions", body)
+        out = await client.chat_completions_router(body)
         raw = (out.get("choices") or [{}])[0].get("message", {}).get("content") or ""
         parsed = _extract_json_object(raw)
-        mid = str(parsed.get("model_id") or "").strip()
+        mid_raw = str(parsed.get("model_id") or "").strip()
         note = str(parsed.get("route") or "llm").strip()
-        if not mid or mid == settings.auto_model_id:
-            raise ValueError("invalid model_id from LLM")
-        if mid not in available_ids:
-            logger.warning("LLM router picked unknown model %r, fallback rules", mid)
-            return pick_route_deterministic(messages, available_ids)
+        if not mid_raw or mid_raw == settings.auto_model_id:
+            return _fallback_or_raise(
+                ValueError("invalid model_id"),
+                "нейро-роутер вернул пустой или запрещённый model_id",
+            )
+        mid = _match_model_id(mid_raw, available_ids)
+        if not mid:
+            return _fallback_or_raise(
+                ValueError(mid_raw),
+                f"нейро-роутер вернул неизвестный model_id: {mid_raw!r}",
+            )
+        logger.info("LLM router ok: model=%s note=%s", mid, note)
         return mid, f"llm:{note}"
+    except RouterLLMFailed:
+        raise
     except Exception as e:
-        logger.warning("LLM router error: %s", e)
-        return pick_route_deterministic(messages, available_ids)
+        return _fallback_or_raise(e, f"ошибка нейро-роутера: {e!s}")

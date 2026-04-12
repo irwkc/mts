@@ -25,6 +25,11 @@ class Settings(BaseSettings):
 
     # Router / defaults (override via env after GET /v1/models on real deployment)
     auto_model_id: str = "gpthub-auto"
+    # Отображаемое имя авто-модели в UI (список моделей Open WebUI)
+    auto_model_display_name: str = Field(
+        default="smart BAOBAB",
+        validation_alias="GPTHUB_AUTO_MODEL_DISPLAY_NAME",
+    )
     default_llm: str = "mts-anya"
     vision_model: str = "gpt-4o"
     image_gen_model: str = "qwen-image"
@@ -41,6 +46,8 @@ class Settings(BaseSettings):
     # Авторежим: выбор модели через один вызов LLM к MWS (иначе — правила pick_route_deterministic)
     router_use_llm: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_USE_LLM")
     router_llm_model: str = Field(default="mts-anya", validation_alias="GPTHUB_ROUTER_LLM_MODEL")
+    # Если false — при сбое нейро-роутера не подставлять правила по ключевым словам, а вернуть 503
+    router_rules_fallback: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_RULES_FALLBACK")
 
 
 settings = Settings()

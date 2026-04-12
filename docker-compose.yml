@@ -15,6 +15,8 @@ services:
       GPTHUB_ROUTER_DEBUG: ${GPTHUB_ROUTER_DEBUG:-true}
       GPTHUB_ROUTER_USE_LLM: ${GPTHUB_ROUTER_USE_LLM:-true}
       GPTHUB_ROUTER_LLM_MODEL: ${GPTHUB_ROUTER_LLM_MODEL:-mts-anya}
+      GPTHUB_ROUTER_RULES_FALLBACK: ${GPTHUB_ROUTER_RULES_FALLBACK:-true}
+      GPTHUB_AUTO_MODEL_DISPLAY_NAME: ${GPTHUB_AUTO_MODEL_DISPLAY_NAME:-"smart BAOBAB"}
     volumes:
       - gpthub-data:/data
     ports:
@@ -27,7 +29,9 @@ services:
       retries: 5
 
   open-webui:
-    image: ghcr.io/open-webui/open-webui:main
+    image: ${OPENWEBUI_IMAGE:-ghcr.io/irwkc/mts-open-webui-baobab:latest}
+    build:
+      context: ./open-webui-baobab
     depends_on:
       gpthub-gateway:
         condition: service_healthy
@@ -45,14 +49,20 @@ services:
       OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
       OPENAI_API_KEYS: ${MWS_API_KEY:?set MWS_API_KEY in .env}
       WEBUI_URL: ${WEBUI_URL:-http://localhost:3000}
+      WEBUI_NAME: ${WEBUI_NAME:-"BAOBAB productions"}
       # Модель по умолчанию в UI — авто-роутер (см. также нормализацию provider/id в шлюзе)
       DEFAULT_MODELS: '["gpthub-auto"]'
-      # Голос / диктофон: STT и TTS через тот же шлюз → MWS (явно, чтобы не залипал PersistentConfig в SQLite)
+      # Голос / диктофон: STT и TTS через тот же шлюз → MWS
+      # Без AUDIO_STT_ENGINE=openai UI берёт локальный Whisper в контейнере (не ваш API) — диктовка ломается.
+      AUDIO_STT_ENGINE: openai
       AUDIO_STT_OPENAI_API_BASE_URL: http://gpthub-gateway:8080/v1
       AUDIO_STT_OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
       AUDIO_STT_MODEL: ${ASR_MODEL:-whisper-large-v3}
+      AUDIO_TTS_ENGINE: openai
       AUDIO_TTS_OPENAI_API_BASE_URL: http://gpthub-gateway:8080/v1
       AUDIO_TTS_OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
+      AUDIO_TTS_MODEL: ${AUDIO_TTS_MODEL:-tts-1}
+      AUDIO_TTS_VOICE: ${AUDIO_TTS_VOICE:-alloy}
     volumes:
       - open-webui-data:/app/backend/data
     restart: unless-stopped

@@ -9,6 +9,9 @@ from typing import Any, Optional
 
 from app.config import settings
 
+# Короче этого — без вызова нейро-роутера LLM (сразу default_llm): приветствия, короткий чат.
+_ROUTER_SIMPLE_TURN_MAX = 360
+
 IMAGE_GEN_RE = re.compile(
     r"(нарисуй|сгенерируй\s+изображение|создай\s+картинк|text-to-image|"
     r"generate\s+an?\s+image|draw\s+a|image\s+generation|flux|sdxl)",
@@ -20,6 +23,12 @@ SEARCH_RE = re.compile(
     re.I,
 )
 URL_RE = re.compile(r"https?://[^\s)]+", re.I)
+# «Глубокое исследование» — пусть решает нейро-роутер / полный анализ текста
+_DEEP_RESEARCH_HINT = re.compile(
+    r"(deep\s+research|глубок(ое|ий)\s+исследован|многошагов(ый|ого)\s+поиск|"
+    r"iterative\s+search|исследуй\s+тему)",
+    re.I,
+)
 
 
 def normalize_requested_model(model_id: str) -> str:
@@ -89,6 +98,33 @@ def message_has_audio(messages: list[dict[str, Any]]) -> bool:
 def apply_manual_route(req: str, available_ids: set[str]) -> tuple[str, str]:
     mid = req if req in available_ids else settings.default_llm
     return mid, "manual"
+
+
+def try_fast_path_default_llm_for_simple_turn(
+    messages: list[dict[str, Any]],
+    available_ids: set[str],
+) -> tuple[str, str] | None:
+    """
+    Короткий текстовый ход без картинки/аудио и без явных триггеров (картинка, поиск, URL, deep research).
+    Не вызывает отдельный LLM-роутер — сразу основная chat-модель (стабильные ответы на «привет», мелкий диалог).
+    """
+    if message_has_image(messages) or message_has_audio(messages):
+        return None
+    lu = last_user_message(messages)
+    text = _content_to_text(lu.get("content") if lu else None).strip()
+    if not text or len(text) > _ROUTER_SIMPLE_TURN_MAX:
+        return None
+    if IMAGE_GEN_RE.search(text) or SEARCH_RE.search(text):
+        return None
+    if URL_RE.search(text) or _DEEP_RESEARCH_HINT.search(text):
+        return None
+    dm = settings.default_llm
+    if dm in available_ids:
+        return (dm, "auto:simple_chat")
+    for x in sorted(available_ids):
+        if x != settings.auto_model_id:
+            return (x, "auto:simple_chat")
+    return None
 
 
 def pick_route_deterministic(
