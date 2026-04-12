@@ -1,5 +1,6 @@
 services:
   gpthub-gateway:
+    image: ${GPTHUB_IMAGE:-ghcr.io/irwkc/mts-gpthub-gateway:latest}
     build:
       context: ./gpthub-gateway
       dockerfile: Dockerfile
@@ -32,8 +33,14 @@ services:
     environment:
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-gpthub-change-me-in-production}
       ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
+      # Иначе UI ждёт Ollama и показывает «No models» без подключения провайдера
+      ENABLE_OLLAMA_API: "false"
+      ENABLE_OPENAI_API: "true"
       OPENAI_API_BASE_URL: http://gpthub-gateway:8080/v1
+      OPENAI_API_BASE_URLS: http://gpthub-gateway:8080/v1
       OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
+      OPENAI_API_KEYS: ${MWS_API_KEY:?set MWS_API_KEY in .env}
+      WEBUI_URL: ${WEBUI_URL:-http://localhost:3000}
     volumes:
       - open-webui-data:/app/backend/data
     restart: unless-stopped

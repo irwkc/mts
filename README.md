@@ -34,6 +34,14 @@ bash scripts/compose-up-verbose.sh
 
 См. [.env.example](.env.example). Критично: `MWS_API_KEY`. Имена моделей (`DEFAULT_LLM`, `VISION_MODEL`, …) должны совпадать с ответом `GET /v1/models` для вашего ключа.
 
+## Деплой через GitHub Actions
+
+При push в `main` workflow **собирает** образ `gpthub-gateway` на раннере GitHub (с [кэшем Docker BuildKit `gha`](https://docs.docker.com/build/ci/github-actions/cache/)), пушит в **GHCR** `ghcr.io/irwkc/mts-gpthub-gateway:latest`, затем по SSH на сервере: `git pull`, `docker compose pull`, `docker compose up -d --no-build`, nginx. Сборка на сервере не выполняется.
+
+Пакет в GitHub Packages для этого образа должен быть **Public**, либо на сервере настроен `docker login ghcr.io`.
+
+Если в Open WebUI по-прежнему пустой список моделей после смены настроек, один раз пересоздайте контейнер (`docker compose up -d --force-recreate`) или удалите том `open-webui-data` (удалит локальные чаты).
+
 ## Структура
 
 - `docker-compose.yml` — Open WebUI + GPTHub Gateway.
