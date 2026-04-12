@@ -86,6 +86,19 @@ class Settings(BaseSettings):
     # Авторежим: выбор модели через один вызов LLM к MWS (иначе — правила pick_route_deterministic)
     router_use_llm: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_USE_LLM")
     router_llm_model: str = Field(default="mts-anya", validation_alias="GPTHUB_ROUTER_LLM_MODEL")
+    # Локальный нейро-роутер (OpenAI-compatible: Ollama :11434/v1, llama-server и т.д.) — без MWS
+    router_local_base_url: str = Field(
+        default="",
+        validation_alias="GPTHUB_ROUTER_LOCAL_BASE_URL",
+    )
+    router_local_model: str = Field(
+        default="qwen2.5:0.5b",
+        validation_alias="GPTHUB_ROUTER_LOCAL_MODEL",
+    )
+    router_local_api_key: str = Field(
+        default="",
+        validation_alias="GPTHUB_ROUTER_LOCAL_API_KEY",
+    )
     # Если false — при сбое нейро-роутера не подставлять правила по ключевым словам, а вернуть 503
     router_rules_fallback: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_RULES_FALLBACK")
 

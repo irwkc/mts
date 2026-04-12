@@ -1,5 +1,6 @@
 """
-Автовыбор модели через один вызов chat/completions к MWS (нейро-роутер).
+Автовыбор модели через один вызов chat/completions (нейро-роутер):
+MWS или локальный OpenAI-compatible (Ollama и т.д.), см. GPTHUB_ROUTER_LOCAL_BASE_URL.
 При ошибке парсинга / API — по умолчанию fallback на pick_route_deterministic;
 при GPTHUB_ROUTER_RULES_FALLBACK=false — исключение RouterLLMFailed (503).
 """
@@ -10,6 +11,8 @@ import json
 import logging
 import re
 from typing import Any
+
+import httpx
 
 from app.config import settings
 from app.mws_client import MWSClient
@@ -49,6 +52,31 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     raise ValueError("router JSON is not an object")
 
 
+async def _post_router_chat_completions(
+    body: dict[str, Any], client: MWSClient
+) -> dict[str, Any]:
+    """Один вызов chat/completions: локальный OpenAI API или MWS."""
+    base = (settings.router_local_base_url or "").strip()
+    if base:
+        url = base.rstrip("/") + "/chat/completions"
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        key = (settings.router_local_api_key or "").strip()
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        async with httpx.AsyncClient(timeout=90.0) as http:
+            r = await http.post(url, headers=headers, content=json.dumps(body))
+            if r.status_code in (400, 422) and body.get("response_format"):
+                logger.warning(
+                    "local router: retry without response_format (%s)",
+                    r.text[:200],
+                )
+                b2 = {k: v for k, v in body.items() if k != "response_format"}
+                r = await http.post(url, headers=headers, content=json.dumps(b2))
+            r.raise_for_status()
+            return r.json()
+    return await client.chat_completions_router(body)
+
+
 def _match_model_id(raw: str, available_ids: set[str]) -> str | None:
     """Сопоставить ответ LLM с id из каталога (регистр, кавычки, частичное совпадение)."""
     s = (raw or "").strip().strip("\"'")
@@ -73,7 +101,7 @@ async def resolve_auto_route_with_llm(
     client: MWSClient,
 ) -> tuple[str, str]:
     """
-    Один запрос к MWS: модель router_llm_model возвращает JSON { "model_id", "route" }.
+    Один запрос к роутеру: JSON { "model_id", "route" }; backend — MWS или локальный LLM.
     """
     candidates = sorted(x for x in available_ids if x and x != settings.auto_model_id)
     if not candidates:
@@ -84,11 +112,16 @@ async def resolve_auto_route_with_llm(
         logger.info("LLM router skipped (simple turn) -> %s %s", fast[0], fast[1])
         return fast
 
-    router_model = settings.router_llm_model
-    if router_model not in available_ids:
-        router_model = settings.default_llm
+    use_local_router = bool((settings.router_local_base_url or "").strip())
+    if use_local_router:
+        router_model = (settings.router_local_model or "qwen2.5:0.5b").strip()
+        logger.info("LLM router backend=local model=%s", router_model)
+    else:
+        router_model = settings.router_llm_model
         if router_model not in available_ids:
-            router_model = candidates[0]
+            router_model = settings.default_llm
+            if router_model not in available_ids:
+                router_model = candidates[0]
 
     lu = last_user_message(messages)
     text = _content_to_text(lu.get("content") if lu else None)[:6000]
@@ -133,7 +166,7 @@ async def resolve_auto_route_with_llm(
         raise RouterLLMFailed(msg) from exc
 
     try:
-        out = await client.chat_completions_router(body)
+        out = await _post_router_chat_completions(body, client)
         raw = (out.get("choices") or [{}])[0].get("message", {}).get("content") or ""
         parsed = _extract_json_object(raw)
         mid_raw = str(parsed.get("model_id") or "").strip()
