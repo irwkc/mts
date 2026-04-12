@@ -22,7 +22,7 @@ services:
       DEFAULT_LLM: ${DEFAULT_LLM:-mts-anya}
       VISION_MODEL: ${VISION_MODEL:-gpt-4o}
       IMAGE_GEN_MODEL: ${IMAGE_GEN_MODEL:-qwen-image}
-      ASR_MODEL: ${ASR_MODEL:-whisper-large-v3}
+      ASR_MODEL: ${ASR_MODEL:-whisper-medium}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
       GPTHUB_ROUTER_DEBUG: ${GPTHUB_ROUTER_DEBUG:-true}
       GPTHUB_ROUTER_MODE: ${GPTHUB_ROUTER_MODE:-gena}
@@ -77,7 +77,7 @@ services:
       AUDIO_STT_ENGINE: openai
       AUDIO_STT_OPENAI_API_BASE_URL: http://gpthub-gateway:8080/v1
       AUDIO_STT_OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
-      AUDIO_STT_MODEL: ${ASR_MODEL:-whisper-large-v3}
+      AUDIO_STT_MODEL: ${ASR_MODEL:-whisper-medium}
       AUDIO_TTS_ENGINE: openai
       AUDIO_TTS_OPENAI_API_BASE_URL: http://gpthub-gateway:8080/v1
       AUDIO_TTS_OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}

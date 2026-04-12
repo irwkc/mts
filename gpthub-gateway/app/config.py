@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     default_llm: str = "mts-anya"
     vision_model: str = "gpt-4o"
     image_gen_model: str = "qwen-image"
-    asr_model: str = "whisper-large-v3"
+    asr_model: str = "whisper-medium"
     embedding_model: str = "bge-m3"
 
     memory_top_k: int = 8

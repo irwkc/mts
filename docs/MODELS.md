@@ -7,7 +7,7 @@
 | Общий текстовый чат, оркестрация инструментов | `DEFAULT_LLM` (например `mts-anya`) | text-to-text |
 | Анализ изображений в чате | `VISION_MODEL` (например `gpt-4o`) | image-text-to-text |
 | Генерация изображений по тексту | `IMAGE_GEN_MODEL` (например `qwen-image`) | text-to-image |
-| Транскрипция аудио | `ASR_MODEL` (например `whisper-large-v3`) | speech-to-text |
+| Транскрипция аудио | `ASR_MODEL` (например `whisper-medium`, `whisper-turbo-local` — см. доступные модели ключа) | speech-to-text |
 | Эмбеддинги памяти и RAG | `EMBEDDING_MODEL` (`bge-m3`) | embeddings |
 
 **Ручной режим:** любая модель из каталога, кроме `gpthub-auto`, передаётся в MWS без переопределения.
