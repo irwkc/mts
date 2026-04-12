@@ -26,3 +26,13 @@
 
 ## 7. Продуктовая ценность
 - Один привычный чат, прозрачный маршрут к моделям MWS, воспроизводимый деплой (Docker + optional GitHub Actions).
+
+## 8. Редактор деки (Kimi-style, основа)
+После генерации презентации шлюз сохраняет `static/presentations/<stem>.json` рядом с `.pptx`.
+- **UI:** `/presentation/editor/?stem=presentation_xxxxxxxxxx` (статика шлюза; за nginx проксируйте `location /presentation/`).
+- **API:** `GET/PUT /presentation/api/deck/{stem}`, `POST /presentation/api/deck/{stem}/rebuild` — пересборка PPTX с новыми картинками через `resolve_slide_images`.
+- В чате есть ссылки «Скачать», «Редактор», «Предпросмотр».
+
+## 9. Структурированный стрим (delta.gena) и Open WebUI
+В SSE каждого чанка совместимого с OpenAI допускается поле **`choices[0].delta.gena`** — JSON-события презентации (`presentation_start`, `phase`, `deck_structure`, `slide_image`, `presentation_complete`, `error`). Текст для чата по-прежнему в **`delta.content`**.
+Образ **open-webui-baobab** подключает **`gena-openwebui.js`**: перехват `fetch` на streaming `chat/completions`, парсинг `delta.gena` и док-панель справа (фазы, превью картинок по слайдам, ссылки после готовности).

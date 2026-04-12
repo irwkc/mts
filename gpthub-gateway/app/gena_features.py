@@ -8,7 +8,8 @@ import json
 import logging
 import re
 import uuid
-from typing import AsyncGenerator
+from pathlib import Path
+from typing import Any, AsyncGenerator, Optional
 from urllib.parse import quote
 
 import httpx
@@ -19,7 +20,8 @@ from app.image_utils import image_api_response_to_sse_href
 from app.presentation_pptx import (
     build_colorful_pptx,
     parse_presentation_json,
-    resolve_slide_images,
+    resolve_slide_images_progress,
+    write_presentation_sidecar,
 )
 from app.mws_client import MWSClient
 from app.router_logic import IMAGE_GEN_RE, MUSIC_GEN_RE, PRESENTATION_RE, gena_chat_target
@@ -51,9 +53,47 @@ def friendly_stream_error(exc: BaseException) -> str:
     return (s[:500] if s else "Неизвестная ошибка.")
 
 
-def sse_delta(content: str) -> str:
-    esc = json.dumps(content, ensure_ascii=False)
-    return f'data: {{"choices": [{{"delta": {{"content": {esc} }}}}]}}\n\n'
+def sse_delta(content: str = "", gena: Optional[dict[str, Any]] = None) -> str:
+    """
+    OpenAI-совместимый SSE. Поле delta.gena — структурированные события для Open WebUI (виджет).
+    Пустой контент + только gena: подставляем zero-width space, чтобы UI не ругался на пустой delta.
+    """
+    c = content if content is not None else ""
+    if gena is not None and not (c and c.strip()):
+        c = "\u200b"
+    delta: dict[str, Any] = {"content": c}
+    if gena is not None:
+        delta["gena"] = gena
+    return "data: " + json.dumps({"choices": [{"delta": delta}]}, ensure_ascii=False) + "\n\n"
+
+
+def _path_to_static_url(request: Request, p: Optional[Path]) -> Optional[str]:
+    if p is None or not p.is_file():
+        return None
+    try:
+        rel = p.resolve().relative_to(settings.data_dir.resolve())
+        return public_static_url(request, str(rel).replace("\\", "/"))
+    except ValueError:
+        return None
+
+
+def _slides_gena_summary(slides_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for i, s in enumerate(slides_data):
+        if not isinstance(s, dict):
+            continue
+        bullets = s.get("bullets")
+        nbul = len(bullets) if isinstance(bullets, list) else 0
+        out.append(
+            {
+                "index": i,
+                "title": (str(s.get("title") or "")[:240]),
+                "subtitle": (str(s.get("subtitle") or "")[:160]),
+                "bullet_count": nbul,
+                "image_mode": str(s.get("image_mode") or "auto"),
+            }
+        )
+    return out
 
 
 def _pick_model(preferred: str, available: set[str], fallback: str) -> str:
@@ -94,17 +134,26 @@ def public_static_url(request: Request, rel_path: str) -> str:
 
 
 def presentation_preview_markdown(request: Request, fname: str) -> str:
-    """Ссылки на страницу предпросмотра шлюза и на Office Online (нужен публичный URL к PPTX)."""
+    """Одна ссылка: страница шлюза с iframe (рядом с тем же origin, что и PPTX)."""
     rel = f"static/presentations/{fname}"
     base = str(request.base_url).rstrip("/")
     page = f"{base}/preview/pptx?path={quote(rel, safe='')}"
-    abs_url = public_static_url(request, rel)
-    office = f"https://view.officeapps.live.com/op/embed.aspx?src={quote(abs_url, safe='')}"
-    return (
-        f"[Предпросмотр в браузере]({page}) · [Office Online]({office})\n\n"
-        "*Предпросмотр с сервера Microsoft сработает, если по ссылке на PPTX доступен публичный HTTPS "
-        "(настройте `GPTHUB_PUBLIC_BASE_URL`). Иначе скачайте файл — локально в PowerPoint / Keynote.*\n\n"
-    )
+    return f"[Предпросмотр]({page})\n\n"
+
+
+def _presentation_slide_cap(prompt: str) -> int:
+    """Число слайдов из запроса («на 20 слайдов») с ограничением GPTHUB_MAX_PRESENTATION_SLIDES."""
+    mx = max(1, int(settings.gena_max_presentation_slides))
+    t = (prompt or "")[:2500]
+    m = re.search(r"(?:на|до)\s*(\d{1,2})\s*слайд", t, re.I)
+    if not m:
+        m = re.search(r"(\d{1,2})\s*слайд", t, re.I)
+    if m:
+        try:
+            return max(1, min(mx, int(m.group(1))))
+        except ValueError:
+            pass
+    return mx
 
 
 async def stream_presentation_pptx(
@@ -113,10 +162,16 @@ async def stream_presentation_pptx(
     prompt: str,
     available_ids: set[str],
 ) -> AsyncGenerator[str, None]:
+    slide_cap = _presentation_slide_cap(prompt)
     yield sse_delta(
-        "**[gena · презентация]** — веб-поиск, структура слайдов, картинки (веб/нейро), цветной PPTX.\n\n"
+        "**[gena · презентация]**\n\n",
+        gena={
+            "type": "presentation_start",
+            "slide_cap": slide_cap,
+            "schema": "gena.presentation.v1",
+        },
     )
-    yield sse_delta("*(Презентация: ищу материалы в интернете…)*\n\n")
+    yield sse_delta("", gena={"type": "phase", "phase": "research"})
     research = web_search_ddg((prompt or "")[:600], max_results=6)
     page_bits: list[str] = []
     for u in extract_urls(research, limit=2):
@@ -134,7 +189,8 @@ async def stream_presentation_pptx(
     if page_extra:
         user_bundle += f"\n\nФрагменты страниц для анализа:\n{page_extra[:6000]}"
 
-    yield sse_delta("*(Презентация: генерирую структуру слайдов и заметки докладчика…)*\n\n")
+    yield sse_delta("", gena={"type": "phase", "phase": "research_done"})
+    yield sse_delta("", gena={"type": "phase", "phase": "llm"})
     model = _pick_model(settings.gena_code_model, available_ids, settings.default_llm)
     system_prompt = (
         "Ты — автор презентаций (как умный ассистент с веб-контекстом): факты, структура, заметки докладчика, иллюстрации.\n"
@@ -154,7 +210,8 @@ async def stream_presentation_pptx(
         "Опционально в объекте слайда (если уместно): "
         '"font_scale": число 0.85–1.2 (крупность текста относительно стиля); '
         '"title_font"|"body_font"|"notes_font": одно из arial, calibri, georgia, times, helvetica, verdana, tahoma. '
-        "Правила: 5–10 слайдов; разные гармоничные accent; visual_style задаёт шрифты и плотность верстки; "
+        f"Правила: не больше {slide_cap} слайдов (ровно столько, сколько нужно теме, но не выше этого числа); "
+        "разные гармоничные accent; visual_style задаёт шрифты и плотность верстки; "
         "image_mode: search — только реальные фото/схемы из интернета; generate — только нейро-иллюстрация; "
         "auto — сначала подобрать изображение из веба, иначе нейро. "
         "sources — только реальные URL из контекста веб-поиска выше (0–2 на слайд). "
@@ -170,29 +227,58 @@ async def stream_presentation_pptx(
                     {"role": "user", "content": user_bundle[:24000]},
                 ],
                 "temperature": 0.35,
-                "max_tokens": 8000,
+                "max_tokens": 14000 if slide_cap > 14 else 8000,
             },
         )
         raw = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
         deck_title, slides_data = parse_presentation_json(raw)
-        max_slides = max(1, int(settings.gena_max_presentation_slides))
-        slides_data = [s for s in slides_data if isinstance(s, dict)][:max_slides]
+        slides_data = [s for s in slides_data if isinstance(s, dict)][:slide_cap]
         if len(slides_data) < 1:
             raise ValueError("no slides in JSON")
 
-        plan_lines = [f"**{deck_title}**" if deck_title else "**Презентация**"]
+        plan_lines: list[str] = []
+        if deck_title:
+            plan_lines.append(f"**{deck_title}**")
         for i, s in enumerate(slides_data, 1):
             plan_lines.append(f"{i}. {s.get('title', 'Слайд')}")
+        summary = _slides_gena_summary(slides_data)
         yield sse_delta(
-            "**План слайдов** (дальше — картинки и сборка; текст и заметки можно править в PowerPoint):\n\n"
-            + "\n".join(plan_lines)
-            + "\n\n"
+            "\n".join(plan_lines) + "\n\n",
+            gena={
+                "type": "deck_structure",
+                "deck_title": (deck_title or "")[:500],
+                "slides": summary,
+                "slide_count": len(slides_data),
+            },
         )
 
-        yield sse_delta("*(Презентация: подбираю изображения — веб и нейросеть…)*\n\n")
-        image_paths = await resolve_slide_images(client, slides_data, available_ids)
-
-        yield sse_delta("*(Презентация: собираю PPTX с заметками докладчика…)*\n\n")
+        yield sse_delta(
+            "",
+            gena={
+                "type": "phase",
+                "phase": "images",
+                "total": len(slides_data),
+                "done": 0,
+            },
+        )
+        image_paths: list[Optional[Path]] = [None] * len(slides_data)
+        done = 0
+        async for idx, img_path in resolve_slide_images_progress(
+            client, slides_data, available_ids
+        ):
+            image_paths[idx] = img_path
+            done += 1
+            preview = _path_to_static_url(request, img_path)
+            yield sse_delta(
+                "",
+                gena={
+                    "type": "slide_image",
+                    "slide_index": idx,
+                    "status": "ready" if preview else "empty",
+                    "preview_url": preview,
+                    "progress": {"done": done, "total": len(slides_data)},
+                },
+            )
 
         static_dir = settings.data_dir / "static" / "presentations"
         static_dir.mkdir(parents=True, exist_ok=True)
@@ -200,17 +286,39 @@ async def stream_presentation_pptx(
         fname = f"{stem}.pptx"
         fpath = static_dir / fname
 
+        yield sse_delta("", gena={"type": "phase", "phase": "build"})
         build_colorful_pptx(slides_data, image_paths, fpath, deck_title=deck_title)
-        url = public_static_url(request, f"static/presentations/{fname}")
-        yield sse_delta(
-            "✅ **Презентация готова** — цветные слайды, **заметки докладчика** (в PowerPoint или Keynote: режим докладчика / заметки), "
-            "картинки из **интернета** и/или **нейросети** по полю `image_mode`.\n\n"
-            f"[Скачать PPTX]({url})\n\n"
-            + presentation_preview_markdown(request, fname)
+        write_presentation_sidecar(
+            static_dir / f"{stem}.json",
+            deck_title,
+            slides_data,
+            research + ("\n" + page_extra if page_extra else ""),
+            stem=stem,
         )
+        url = public_static_url(request, f"static/presentations/{fname}")
+        base = str(request.base_url).rstrip("/")
+        preview_page = f"{base}/preview/pptx?path={quote(f'static/presentations/{fname}', safe='')}"
+        editor = f"{base}/presentation/editor/?stem={stem}"
+        yield sse_delta(
+            f"✅ [Скачать PPTX]({url}) · [Редактор]({editor})\n\n"
+            + presentation_preview_markdown(request, fname),
+            gena={
+                "type": "presentation_complete",
+                "stem": stem,
+                "download_url": url,
+                "editor_url": editor,
+                "preview_page_url": preview_page,
+                "pptx_rel": f"static/presentations/{fname}",
+                "slide_count": len(slides_data),
+            },
+        )
+        yield sse_delta("", gena={"type": "phase", "phase": "done"})
     except Exception as e:
         logger.exception("presentation")
-        yield sse_delta(f"**Ошибка презентации.** {friendly_stream_error(e)}\n\n")
+        yield sse_delta(
+            f"**Ошибка презентации.** {friendly_stream_error(e)}\n\n",
+            gena={"type": "error", "message": friendly_stream_error(e)},
+        )
     yield "data: [DONE]\n\n"
 
 

@@ -3,6 +3,8 @@ FROM ghcr.io/open-webui/open-webui:main
 
 COPY custom.css /app/build/static/custom.css
 COPY baobab-splash-delay.js /app/build/static/baobab-splash-delay.js
+COPY gena-openwebui.css /app/build/static/gena-openwebui.css
+COPY gena-openwebui.js /app/build/static/gena-openwebui.js
 COPY scripts/inject_splash_delay.py /tmp/inject_splash_delay.py
 
 RUN python3 /tmp/inject_splash_delay.py && rm -f /tmp/inject_splash_delay.py
@@ -25,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends imagemagick \
   && rm -rf /var/lib/apt/lists/*
 
 RUN if [ -d /app/backend/open_webui/static ]; then \
-      for f in custom.css baobab-splash-delay.js favicon.ico favicon.png favicon-dark.png logo.png favicon-96x96.png \
+      for f in custom.css baobab-splash-delay.js gena-openwebui.css gena-openwebui.js favicon.ico favicon.png favicon-dark.png logo.png favicon-96x96.png \
                apple-touch-icon.png splash.png splash-dark.png \
                web-app-manifest-192x192.png web-app-manifest-512x512.png; do \
         [ -f "/app/build/static/$f" ] && cp "/app/build/static/$f" "/app/backend/open_webui/static/$f"; \

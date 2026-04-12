@@ -139,7 +139,7 @@ class Settings(BaseSettings):
         description="Лимит размера тела chat/completions (JSON), защита от случайно огромных запросов",
     )
     gena_max_presentation_slides: int = Field(
-        default=10,
+        default=20,
         validation_alias="GPTHUB_MAX_PRESENTATION_SLIDES",
     )
     # Базовый PPTX для сборки (пусто — встроенный файл keynote_base.pptx). См. gena_pptx_use_bundled_template.
@@ -161,6 +161,15 @@ class Settings(BaseSettings):
         default=4096,
         validation_alias="GPTHUB_PPTX_MAX_IMAGE_PX",
     )
+
+    @field_validator("gena_max_presentation_slides", mode="before")
+    @classmethod
+    def clamp_max_presentation_slides(cls, v: object) -> int:
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            return 20
+        return max(1, min(40, n))
 
     @field_validator("gena_pptx_max_image_px", mode="before")
     @classmethod

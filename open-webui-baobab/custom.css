@@ -1,4 +1,5 @@
 /*
  * BAOBAB: favicon / splash / PWA подставляются в Dockerfile из assets/baobab-logo.png.
  * Тема Open WebUI — стандартная; splash как в upstream (лого из splash.png).
+ * Стили gena (док презентации, iframe) — в gena-openwebui.css
  */

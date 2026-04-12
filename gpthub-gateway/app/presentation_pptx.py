@@ -375,17 +375,22 @@ def write_presentation_sidecar(
     deck_title: str,
     slides_data: list[dict[str, Any]],
     research_excerpt: str,
+    stem: str = "",
 ) -> None:
-    """JSON со структурой для ручного редактирования (как «исходник» кроме PPTX)."""
-    doc = {
+    """JSON со структурой для редактора и пересборки PPTX."""
+    doc: dict[str, Any] = {
         "deck_title": deck_title,
         "slides": slides_data,
         "research_excerpt": (research_excerpt or "")[:8000],
         "edit_hint": (
-            "Откройте PPTX в PowerPoint: правьте текст на слайдах и блок «Заметки» под слайдом (режим докладчика). "
-            "Этот JSON можно править вручную для следующей генерации."
+            "Веб-редактор: /presentation/editor/?stem=… — после правок нажмите «Пересобрать PPTX». "
+            "Либо откройте PPTX в PowerPoint / Keynote."
         ),
     }
+    if stem:
+        doc["stem"] = stem
+        doc["pptx_rel_url"] = f"static/presentations/{stem}.pptx"
+        doc["editor_url"] = f"/presentation/editor/?stem={stem}"
     path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -719,18 +724,36 @@ async def _resolve_one_slide_image(
     return await gen_neuro()
 
 
+async def resolve_slide_images_progress(
+    client: MWSClient,
+    slides_data: list[dict[str, Any]],
+    available_ids: set[str],
+):
+    """По мере готовности каждого изображения: (индекс слайда, путь или None). Параллельно до 3 потоков."""
+    if not slides_data:
+        return
+    model_id = _pick_image_model(available_ids)
+    sem = asyncio.Semaphore(3)
+
+    async def wrapped(i: int, row: dict[str, Any]) -> tuple[int, Optional[Path]]:
+        async with sem:
+            p = await _resolve_one_slide_image(client, row, model_id)
+        return i, p
+
+    coros = [wrapped(i, row) for i, row in enumerate(slides_data)]
+    for coro in asyncio.as_completed(coros):
+        i, p = await coro
+        yield i, p
+
+
 async def resolve_slide_images(
     client: MWSClient,
     slides_data: list[dict[str, Any]],
     available_ids: set[str],
 ) -> list[Optional[Path]]:
     """По одному изображению на слайд: веб и/или генерация."""
-    model_id = _pick_image_model(available_ids)
-    sem = asyncio.Semaphore(3)
-
-    async def one(row: dict[str, Any]) -> Optional[Path]:
-        async with sem:
-            return await _resolve_one_slide_image(client, row, model_id)
-
-    tasks = [one(row) for row in slides_data]
-    return list(await asyncio.gather(*tasks))
+    n = len(slides_data)
+    paths: list[Optional[Path]] = [None] * n
+    async for i, p in resolve_slide_images_progress(client, slides_data, available_ids):
+        paths[i] = p
+    return paths

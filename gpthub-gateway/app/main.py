@@ -8,6 +8,7 @@ import json
 import logging
 import time
 import uuid
+from pathlib import Path
 from typing import Any, Optional
 
 import httpx
@@ -280,6 +281,15 @@ iframe {{ width: 100%; height: calc(100vh - 120px); border: 0; background: #000;
 </body></html>"""
     return HTMLResponse(html)
 
+
+app.include_router(presentation_api_router)
+
+_presentation_editor_dir = Path(__file__).resolve().parent / "presentation_editor"
+app.mount(
+    "/presentation/editor",
+    StaticFiles(directory=str(_presentation_editor_dir), html=True),
+    name="presentation_editor",
+)
 
 app.mount("/static", StaticFiles(directory=str(_static_root)), name="static")
 
