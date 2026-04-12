@@ -30,6 +30,79 @@ _DEEP_RESEARCH_HINT = re.compile(
     re.I,
 )
 
+# --- Режим «gena» (из gena/router/router.py): эвристики без отдельного LLM-роутера ---
+_GENA_CODE_KEYWORDS = re.compile(
+    r"(код|функц|алгоритм|скрипт|програм|python|js|javascript|sql|ошибк|баг|debug|class|def |import |html|json|питон|java|c\+\+|c#)",
+    re.I,
+)
+_GENA_LONG_DOC_KEYWORDS = re.compile(
+    r"(документ|файл|текст|перевод|реферат|статья|резюме|изложи|summarize|translate|сократи|выдели главное)",
+    re.I,
+)
+
+
+def _coerce_available_model(preferred: str, available_ids: set[str]) -> str:
+    """Вернуть preferred, если есть в каталоге MWS, иначе первый подходящий fallback."""
+    if preferred in available_ids:
+        return preferred
+    for alt in (
+        settings.default_llm,
+        settings.gena_code_model,
+        settings.gena_long_doc_model,
+        settings.vision_model,
+    ):
+        if alt and alt in available_ids:
+            return alt
+    for x in sorted(available_ids):
+        if x != settings.auto_model_id:
+            return x
+    return settings.default_llm
+
+
+def pick_route_gena(
+    messages: list[dict[str, Any]],
+    available_ids: set[str],
+) -> tuple[str, str]:
+    """
+    Автовыбор по правилам gena (router.py select_model): длинный текст / код / чат.
+    Сначала vision/audio/картинка-поиск как в детерминированном роутере.
+    """
+    if message_has_image(messages):
+        vm = settings.vision_model
+        if vm in available_ids:
+            return vm, "gena:vision"
+        for candidate in ("gpt-4o", "gpt-4o-mini", "cotype-pro-vl-32b"):
+            if candidate in available_ids:
+                return candidate, "gena:vision"
+
+    if message_has_audio(messages):
+        dm = settings.default_llm
+        return _coerce_available_model(dm, available_ids), "gena:audio_then_llm"
+
+    lu = last_user_message(messages)
+    text = _content_to_text(lu.get("content") if lu else None)
+    if IMAGE_GEN_RE.search(text):
+        dm = settings.default_llm
+        return _coerce_available_model(dm, available_ids), "gena:image_gen_intent"
+
+    user_texts = " ".join(
+        _content_to_text(m.get("content")) for m in messages or [] if m.get("role") == "user"
+    )
+    total_words = len(user_texts.split())
+
+    if total_words > settings.gena_long_doc_word_threshold or _GENA_LONG_DOC_KEYWORDS.search(
+        user_texts
+    ):
+        mid = _coerce_available_model(settings.gena_long_doc_model, available_ids)
+        return mid, "gena:long_doc"
+
+    if _GENA_CODE_KEYWORDS.search(user_texts):
+        mid = _coerce_available_model(settings.gena_code_model, available_ids)
+        return mid, "gena:code"
+
+    mid = _coerce_available_model(settings.default_llm, available_ids)
+    return mid, "gena:chat"
+
 
 def normalize_requested_model(model_id: str) -> str:
     """

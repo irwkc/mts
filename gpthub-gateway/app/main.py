@@ -30,6 +30,7 @@ from app.router_logic import (
     last_user_message,
     normalize_requested_model,
     pick_route_deterministic,
+    pick_route_gena,
     _content_to_text,
     message_has_image,
     message_has_audio,
@@ -426,9 +427,14 @@ async def chat_completions(request: Request) -> Response:
 
     available = await get_available_model_ids()
     req = normalize_requested_model(requested_model)
+    router_mode = (settings.router_mode or "gena").strip().lower()
     try:
         if req and req != settings.auto_model_id:
             resolved_model, route_note = apply_manual_route(req, available)
+        elif router_mode == "gena":
+            resolved_model, route_note = pick_route_gena(messages, available)
+        elif router_mode == "legacy":
+            resolved_model, route_note = pick_route_deterministic(messages, available)
         elif settings.router_use_llm:
             resolved_model, route_note = await resolve_auto_route_with_llm(
                 messages, available, _client

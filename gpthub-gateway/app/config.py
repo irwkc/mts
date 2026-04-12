@@ -83,6 +83,20 @@ class Settings(BaseSettings):
 
     # Префикс [GPTHub route: …] в system при true (демо / отладка)
     router_debug: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_DEBUG")
+    # llm — нейро-роутер (MWS/Ollama); gena — правила как в проекте gena (regex + объём текста); legacy — старые правила шлюза
+    router_mode: str = Field(default="gena", validation_alias="GPTHUB_ROUTER_MODE")
+    gena_code_model: str = Field(
+        default="qwen3-coder-480b-a35b",
+        validation_alias="GPTHUB_GENA_CODE_MODEL",
+    )
+    gena_long_doc_model: str = Field(
+        default="cotype-pro-vl-32b",
+        validation_alias="GPTHUB_GENA_LONG_DOC_MODEL",
+    )
+    gena_long_doc_word_threshold: int = Field(
+        default=600,
+        validation_alias="GPTHUB_GENA_LONG_DOC_WORDS",
+    )
     # Авторежим: выбор модели через один вызов LLM к MWS (иначе — правила pick_route_deterministic)
     router_use_llm: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_USE_LLM")
     router_llm_model: str = Field(default="mts-anya", validation_alias="GPTHUB_ROUTER_LLM_MODEL")
@@ -101,6 +115,14 @@ class Settings(BaseSettings):
     )
     # Если false — при сбое нейро-роутера не подставлять правила по ключевым словам, а вернуть 503
     router_rules_fallback: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_RULES_FALLBACK")
+
+    @field_validator("router_mode", mode="before")
+    @classmethod
+    def normalize_router_mode(cls, v: object) -> str:
+        s = str(v or "gena").strip().lower()
+        if s in ("llm", "gena", "legacy"):
+            return s
+        return "gena"
 
 
 settings = Settings()
