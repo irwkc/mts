@@ -20,6 +20,15 @@ services:
       start_period: 45s
     restart: unless-stopped
 
+  # Долгая память в стиле gena (семантический поиск; опционально, том на диске).
+  chroma:
+    image: chromadb/chroma:latest
+    environment:
+      - ANONYMIZED_TELEMETRY=False
+    volumes:
+      - chroma-data:/data
+    restart: unless-stopped
+
   # Одноразовая загрузка модели при первом деплое (нужен Docker Compose v2.20+).
   ollama-pull:
     image: ollama/ollama:latest
@@ -43,6 +52,8 @@ services:
         condition: service_healthy
       ollama-pull:
         condition: service_completed_successfully
+      chroma:
+        condition: service_started
     # Доступ к Ollama на хосте вместо контейнера: в .env задайте GPTHUB_ROUTER_LOCAL_BASE_URL=http://host.docker.internal:11434/v1 и раскомментируйте:
     # extra_hosts:
     #   - "host.docker.internal:host-gateway"
@@ -55,8 +66,11 @@ services:
       ASR_MODEL: ${ASR_MODEL:-whisper-large-v3}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
       GPTHUB_ROUTER_DEBUG: ${GPTHUB_ROUTER_DEBUG:-true}
-      # gena — правила как в gena/router/router.py (без вызова LLM-роутера); llm — Ollama/MWS; legacy — старые правила шлюза
-      GPTHUB_ROUTER_MODE: ${GPTHUB_ROUTER_MODE:-gena}
+      # llm — нейро-роутер (Ollama при GPTHUB_ROUTER_LOCAL_BASE_URL); gena — только regex; legacy — старые правила
+      GPTHUB_ROUTER_MODE: ${GPTHUB_ROUTER_MODE:-llm}
+      CHROMA_HOST: ${CHROMA_HOST:-chroma}
+      CHROMA_PORT: ${CHROMA_PORT:-8000}
+      GPTHUB_PUBLIC_BASE_URL: ${GPTHUB_PUBLIC_BASE_URL:-}
       GPTHUB_GENA_CODE_MODEL: ${GPTHUB_GENA_CODE_MODEL:-qwen3-coder-480b-a35b}
       GPTHUB_GENA_LONG_DOC_MODEL: ${GPTHUB_GENA_LONG_DOC_MODEL:-cotype-pro-vl-32b}
       GPTHUB_ROUTER_USE_LLM: ${GPTHUB_ROUTER_USE_LLM:-true}
@@ -133,3 +147,4 @@ volumes:
   gpthub-data:
   open-webui-data:
   ollama-data:
+  chroma-data:

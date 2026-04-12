@@ -12,8 +12,18 @@ from typing import Any, Optional
 import httpx
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
+from app.chroma_store import recall_block as chroma_recall_block, save_message as chroma_save_message
+from app.gena_features import (
+    should_stream_deep_gena,
+    should_stream_image_gena,
+    should_stream_presentation,
+    stream_deep_research,
+    stream_image_markdown,
+    stream_presentation_pptx,
+)
 from app.memory_context import (
     digest_turn_to_facts,
     extract_explicit_remember,
@@ -125,6 +135,8 @@ async def _persist_turn_memory(
         ex = extract_explicit_remember(last_user_text)
         if ex:
             await _memory.add_fact(user_id, ex, tag="explicit")
+        chroma_save_message(user_id, "user", last_user_text[:2000])
+        chroma_save_message(user_id, "assistant", assistant_text[:4000])
         if settings.memory_llm_digest:
             facts = await digest_turn_to_facts(_client, last_user_text, at)
             for f in facts:
@@ -189,6 +201,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("gpthub")
 
 app = FastAPI(title="GPTHub Gateway", version="1.0.0")
+
+_static_root = settings.data_dir / "static"
+_static_root.mkdir(parents=True, exist_ok=True)
+(_static_root / "presentations").mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_static_root)), name="static")
 
 _models_cache: dict[str, Any] = {"t": 0.0, "data": None}
 _memory: Optional[MemoryStore] = None
@@ -416,6 +433,13 @@ async def maybe_image_generation_chat(
     }
 
 
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request) -> Response:
     body = await request.json()
@@ -427,7 +451,7 @@ async def chat_completions(request: Request) -> Response:
 
     available = await get_available_model_ids()
     req = normalize_requested_model(requested_model)
-    router_mode = (settings.router_mode or "gena").strip().lower()
+    router_mode = (settings.router_mode or "llm").strip().lower()
     try:
         if req and req != settings.auto_model_id:
             resolved_model, route_note = apply_manual_route(req, available)
@@ -453,10 +477,31 @@ async def chat_completions(request: Request) -> Response:
         route_note,
     )
 
-    # Долгосрочная память + RAG scope
     lu = last_user_message(messages)
     last_text = _content_to_text(lu.get("content") if lu else None)
 
+    # gena-стримы: презентация, deep research, картинка (до общего system-контекста)
+    if stream and last_text:
+        if should_stream_presentation(last_text, stream):
+            return StreamingResponse(
+                stream_presentation_pptx(request, _client, last_text, available),
+                media_type="text/event-stream",
+                headers=dict(_SSE_HEADERS),
+            )
+        if should_stream_deep_gena(last_text, stream):
+            return StreamingResponse(
+                stream_deep_research(_client, last_text, available),
+                media_type="text/event-stream",
+                headers=dict(_SSE_HEADERS),
+            )
+        if should_stream_image_gena(last_text, stream, message_has_image(messages)):
+            return StreamingResponse(
+                stream_image_markdown(_client, last_text, available),
+                media_type="text/event-stream",
+                headers=dict(_SSE_HEADERS),
+            )
+
+    # Долгосрочная память + RAG scope
     extra_parts: list[str] = []
     explicit_hint = extract_explicit_remember(last_text) if last_text else ""
     if explicit_hint:
@@ -467,6 +512,10 @@ async def chat_completions(request: Request) -> Response:
         mem = await _memory.retrieve(user_id, last_text[:2000])
         if mem:
             extra_parts.append(mem)
+
+    cr = chroma_recall_block(user_id, last_text[:2000])
+    if cr:
+        extra_parts.append(cr)
 
     rag_scope = f"{user_id}:rag"
     if _rag and last_text:
@@ -587,9 +636,5 @@ async def chat_completions(request: Request) -> Response:
     return StreamingResponse(
         gen(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        headers=dict(_SSE_HEADERS),
     )

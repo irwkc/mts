@@ -83,8 +83,8 @@ class Settings(BaseSettings):
 
     # Префикс [GPTHub route: …] в system при true (демо / отладка)
     router_debug: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_DEBUG")
-    # llm — нейро-роутер (MWS/Ollama); gena — правила как в проекте gena (regex + объём текста); legacy — старые правила шлюза
-    router_mode: str = Field(default="gena", validation_alias="GPTHUB_ROUTER_MODE")
+    # llm — нейро-роутер (локальный Ollama при GPTHUB_ROUTER_LOCAL_BASE_URL, иначе MWS); gena — правила regex; legacy — старые правила шлюза
+    router_mode: str = Field(default="llm", validation_alias="GPTHUB_ROUTER_MODE")
     gena_code_model: str = Field(
         default="qwen3-coder-480b-a35b",
         validation_alias="GPTHUB_GENA_CODE_MODEL",
@@ -116,13 +116,19 @@ class Settings(BaseSettings):
     # Если false — при сбое нейро-роутера не подставлять правила по ключевым словам, а вернуть 503
     router_rules_fallback: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_RULES_FALLBACK")
 
+    # Публичный URL шлюза для ссылок на /static/... (презентации). Пусто — берётся из заголовка запроса.
+    public_base_url: str = Field(default="", validation_alias="GPTHUB_PUBLIC_BASE_URL")
+    # ChromaDB (как в gena/router/memory.py); пустой host — отключено, только SQLite-память шлюза
+    chroma_host: str = Field(default="", validation_alias="CHROMA_HOST")
+    chroma_port: int = Field(default=8000, validation_alias="CHROMA_PORT")
+
     @field_validator("router_mode", mode="before")
     @classmethod
     def normalize_router_mode(cls, v: object) -> str:
-        s = str(v or "gena").strip().lower()
+        s = str(v or "llm").strip().lower()
         if s in ("llm", "gena", "legacy"):
             return s
-        return "gena"
+        return "llm"
 
 
 settings = Settings()

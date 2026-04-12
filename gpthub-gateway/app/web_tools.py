@@ -9,9 +9,11 @@ from duckduckgo_search import DDGS
 
 URL_RE = re.compile(r"https?://[^\s)>\]}]+", re.I)
 
+# Как gena RESEARCH_KEYWORDS + прежние триггеры
 DEEP_RESEARCH_RE = re.compile(
-    r"(deep\s+research|глубок(ое|ий)\s+исследован|многошагов(ый|ого)\s+поиск|"
-    r"iterative\s+search|исследуй\s+тему)",
+    r"(глубокий\s+поиск|deep\s+research|глубок(ое|ий)\s+исследован|"
+    r"многошагов(ый|ого)\s+поиск|iterative\s+search|исследуй\s+тему|"
+    r"проанализируй\s+вс[её]\s+в\s+интернет|сделай\s+ресерч|сделай\s+рисерч)",
     re.I,
 )
 

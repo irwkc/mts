@@ -12,11 +12,14 @@ from app.config import settings
 # Короче этого — без вызова нейро-роутера LLM (сразу default_llm): приветствия, короткий чат.
 _ROUTER_SIMPLE_TURN_MAX = 360
 
+# Шире, как в gena/router (IMAGE_KEYWORDS)
 IMAGE_GEN_RE = re.compile(
-    r"(нарисуй|сгенерируй\s+изображение|создай\s+картинк|text-to-image|"
-    r"generate\s+an?\s+image|draw\s+a|image\s+generation|flux|sdxl)",
+    r"(нарисуй|сгенерируй\s*(?:изображение|картинк|картинку)|создай\s*(?:картинк|изображен)|"
+    r"text-to-image|generate\s+an?\s+image|draw\s+|image\s+generation|flux|sdxl|"
+    r"сделай\s+картинку|картинк\b)",
     re.I,
 )
+PRESENTATION_RE = re.compile(r"(презентаци|слайд)", re.I)
 SEARCH_RE = re.compile(
     r"(найди\s+в\s+интернет|поиск\s+в\s+сети|web\s+search|google\s+this|"
     r"search\s+the\s+web)",
