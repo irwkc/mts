@@ -141,6 +141,63 @@ def presentation_preview_markdown(request: Request, fname: str) -> str:
     return f"[Предпросмотр]({page})\n\n"
 
 
+# Выбор стиля в Open WebUI: пользователь жмёт кнопку → в чат уходит «[gena_style:id] …».
+_PRESENTATION_STYLE_HEAD = re.compile(r"^\s*\[gena_style:([a-z0-9_-]+)\]\s*", re.I)
+
+# Список для кнопок в виджете (id стабильны для API).
+PRESENTATION_STYLE_CHOICES: list[dict[str, str]] = [
+    {"id": "minimal", "label": "Минимализм", "emoji": "◻"},
+    {"id": "corporate", "label": "Деловой", "emoji": "◼"},
+    {"id": "modern", "label": "Современный", "emoji": "◆"},
+    {"id": "bold", "label": "Яркий", "emoji": "●"},
+    {"id": "playful", "label": "Лёгкий", "emoji": "◎"},
+]
+
+_PRESENTATION_STYLE_IDS = {x["id"] for x in PRESENTATION_STYLE_CHOICES}
+
+_PRESENTATION_STYLE_HINTS: dict[str, str] = {
+    "minimal": (
+        "Визуальный стиль презентации: минимализм — много воздуха, 1–2 спокойных акцента, "
+        "короткие заголовки, без визуального шума."
+    ),
+    "corporate": (
+        "Визуальный стиль: деловой — сдержанная палитра, чёткая сетка, строгая типографика, "
+        "как в корпоративных шаблонах."
+    ),
+    "modern": (
+        "Визуальный стиль: современный — крупная типографика, мягкие контрасты, "
+        "аккуратные градиенты или плоские плашки."
+    ),
+    "bold": (
+        "Визуальный стиль: яркий — высокий контраст, насыщенные акценты, смелые заголовки, "
+        "динамичная компоновка."
+    ),
+    "playful": (
+        "Визуальный стиль: лёгкий — дружелюбные акценты, больше иллюстративности, "
+        "мягкие формы; без перегруза."
+    ),
+}
+
+
+def split_presentation_style(prompt: str) -> tuple[str, Optional[str]]:
+    """Убрать префикс [gena_style:id] из текста; вернуть (текст, id или None)."""
+    t = (prompt or "").strip()
+    m = _PRESENTATION_STYLE_HEAD.match(t)
+    if not m:
+        return t, None
+    sid = m.group(1).lower()
+    rest = t[m.end() :].strip()
+    if sid not in _PRESENTATION_STYLE_IDS:
+        return rest, None
+    return rest, sid
+
+
+def _normalize_presentation_style(sid: Optional[str]) -> str:
+    if sid and sid in _PRESENTATION_STYLE_IDS:
+        return sid
+    return "corporate"
+
+
 def _presentation_slide_cap(prompt: str) -> int:
     """Число слайдов из запроса («на 20 слайдов») с ограничением GPTHUB_MAX_PRESENTATION_SLIDES."""
     mx = max(1, int(settings.gena_max_presentation_slides))
@@ -162,17 +219,36 @@ async def stream_presentation_pptx(
     prompt: str,
     available_ids: set[str],
 ) -> AsyncGenerator[str, None]:
-    slide_cap = _presentation_slide_cap(prompt)
+    clean_prompt, style_id = split_presentation_style(prompt)
+    if not style_id:
+        yield sse_delta(
+            "",
+            gena={
+                "type": "presentation_style_prompt",
+                "prompt_plain": clean_prompt,
+                "styles": PRESENTATION_STYLE_CHOICES,
+            },
+        )
+        yield "data: [DONE]\n\n"
+        return
+
+    style_key = _normalize_presentation_style(style_id)
+    style_hint = _PRESENTATION_STYLE_HINTS.get(
+        style_key, _PRESENTATION_STYLE_HINTS["corporate"]
+    )
+
+    slide_cap = _presentation_slide_cap(clean_prompt)
     yield sse_delta(
         "**[gena · презентация]**\n\n",
         gena={
             "type": "presentation_start",
             "slide_cap": slide_cap,
             "schema": "gena.presentation.v1",
+            "style": style_key,
         },
     )
     yield sse_delta("", gena={"type": "phase", "phase": "research"})
-    research = web_search_ddg((prompt or "")[:600], max_results=6)
+    research = web_search_ddg((clean_prompt or "")[:600], max_results=6)
     page_bits: list[str] = []
     for u in extract_urls(research, limit=2):
         try:
@@ -183,7 +259,7 @@ async def stream_presentation_pptx(
     page_extra = "\n\n".join(page_bits)
 
     user_bundle = (
-        f"Запрос пользователя:\n{prompt[:8000]}\n\n"
+        f"Запрос пользователя:\n{clean_prompt[:8000]}\n\n"
         f"Сниппеты веб-поиска (используй для фактов и ссылок sources):\n{research[:7000]}"
     )
     if page_extra:
@@ -194,6 +270,8 @@ async def stream_presentation_pptx(
     model = _pick_model(settings.gena_code_model, available_ids, settings.default_llm)
     system_prompt = (
         "Ты — автор презентаций (как умный ассистент с веб-контекстом): факты, структура, заметки докладчика, иллюстрации.\n"
+        + style_hint
+        + "\n\n"
         "Верни СТРОГО один JSON-объект без markdown. Формат:\n"
         '{"deck_title":"Краткое название презентации",'
         '"slides":['
