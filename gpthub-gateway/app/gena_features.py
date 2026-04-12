@@ -44,11 +44,29 @@ def _pick_model(preferred: str, available: set[str], fallback: str) -> str:
 
 
 def public_static_url(request: Request, rel_path: str) -> str:
-    """URL для скачивания файлов из /static/…"""
+    """URL для скачивания файлов из /static/…
+
+    Open WebUI дергает шлюз по Docker-DNS (Host: gpthub-gateway:8080) — такой absolute URL
+    в чате не открывается из браузера. Явный GPTHUB_PUBLIC_BASE_URL, затем X-Forwarded-*,
+    иначе для gpthub-gateway — корневой путь /static/… (тот же origin, что у UI за nginx).
+    """
+    rel_path = rel_path.lstrip("/")
     base = (settings.public_base_url or "").strip().rstrip("/")
     if base:
-        return f"{base}/{rel_path.lstrip('/')}"
-    return str(request.base_url).rstrip("/") + "/" + rel_path.lstrip("/")
+        return f"{base}/{rel_path}"
+
+    fwd = (request.headers.get("x-forwarded-host") or "").strip()
+    if fwd:
+        host = fwd.split(",")[0].strip()
+        proto = (request.headers.get("x-forwarded-proto") or "https").strip().split(",")[0].strip()
+        if proto not in ("http", "https"):
+            proto = "https"
+        return f"{proto}://{host}/{rel_path}"
+
+    if (request.url.hostname or "").lower() == "gpthub-gateway":
+        return f"/{rel_path}"
+
+    return str(request.base_url).rstrip("/") + "/" + rel_path
 
 
 async def stream_presentation_pptx(
