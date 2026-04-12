@@ -1,28 +1,33 @@
-# Тёмно-фиолетовая оболочка BAOBAB + custom.css, favicon и splash-изображение
+# Open WebUI + BAOBAB: лого → favicon.ico, PNG, splash, PWA-иконки; splash +3 с
 FROM ghcr.io/open-webui/open-webui:main
 
 COPY custom.css /app/build/static/custom.css
 COPY baobab-splash-delay.js /app/build/static/baobab-splash-delay.js
 COPY scripts/inject_splash_delay.py /tmp/inject_splash_delay.py
 
-# Splash ещё +3 с: скрипт в <head> до основного бандла
 RUN python3 /tmp/inject_splash_delay.py && rm -f /tmp/inject_splash_delay.py
 
-# Брендинг: assets/splash-logo.png, assets/favicon.ico
-COPY assets/splash-logo.png /app/build/static/baobab-splash.png
-COPY assets/favicon.ico /app/build/static/favicon.ico
-COPY assets/splash-logo.png /app/build/static/favicon.png
+COPY assets/baobab-logo.png /tmp/baobab-logo.png
 
-# Подмена штатных splash-картинок (inline-скрипт в app.html тоже тянет splash*.png)
-COPY assets/splash-logo.png /app/build/static/splash-dark.png
-COPY assets/splash-logo.png /app/build/static/splash.png
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends imagemagick \
+  && convert /tmp/baobab-logo.png -define icon:auto-resize=64,48,32,16 /app/build/static/favicon.ico \
+  && cp /tmp/baobab-logo.png /app/build/static/favicon.png \
+  && convert /tmp/baobab-logo.png -resize 96x96 /app/build/static/favicon-96x96.png \
+  && convert /tmp/baobab-logo.png -resize 180x180 /app/build/static/apple-touch-icon.png \
+  && cp /tmp/baobab-logo.png /app/build/static/splash.png \
+  && cp /tmp/baobab-logo.png /app/build/static/splash-dark.png \
+  && convert /tmp/baobab-logo.png -resize 192x192 /app/build/static/web-app-manifest-192x192.png \
+  && convert /tmp/baobab-logo.png -resize 512x512 /app/build/static/web-app-manifest-512x512.png \
+  && cp /app/build/static/favicon.png /app/build/static/logo.png \
+  && cp /app/build/static/favicon.png /app/build/static/favicon-dark.png \
+  && rm -f /tmp/baobab-logo.png \
+  && rm -rf /var/lib/apt/lists/*
 
 RUN if [ -d /app/backend/open_webui/static ]; then \
-      cp /app/build/static/custom.css /app/backend/open_webui/static/custom.css; \
-      cp /app/build/static/baobab-splash-delay.js /app/backend/open_webui/static/baobab-splash-delay.js; \
-      cp /app/build/static/favicon.ico /app/backend/open_webui/static/favicon.ico; \
-      cp /app/build/static/favicon.png /app/backend/open_webui/static/favicon.png; \
-      cp /app/build/static/baobab-splash.png /app/backend/open_webui/static/baobab-splash.png; \
-      cp /app/build/static/splash-dark.png /app/backend/open_webui/static/splash-dark.png; \
-      cp /app/build/static/splash.png /app/backend/open_webui/static/splash.png; \
+      for f in custom.css baobab-splash-delay.js favicon.ico favicon.png favicon-dark.png logo.png favicon-96x96.png \
+               apple-touch-icon.png splash.png splash-dark.png \
+               web-app-manifest-192x192.png web-app-manifest-512x512.png; do \
+        [ -f "/app/build/static/$f" ] && cp "/app/build/static/$f" "/app/backend/open_webui/static/$f"; \
+      done; \
     fi
