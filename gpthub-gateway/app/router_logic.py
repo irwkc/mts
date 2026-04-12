@@ -45,6 +45,7 @@ PRESENTATION_RE = re.compile(r"(презентаци|слайд)", re.I)
 MUSIC_GEN_RE = re.compile(
     r"(?:"
     r"(?:сгенерируй|создай|напиши|сделай)\s+(?:музык\w*|мелоди\w*|джингл\w*|трек\w*|mp3\b|аудио[\s-]*демо)|"
+    r"(?:мелоди\w*|музык\w*)\s+под\s+песн|"
     r"(?:generate|make|compose)\s+(?:music|melody|jingle|track)\b|"
     r"музыкальн\w+\s+(?:демо|фрагмент|отрывок)|"
     r"демо[\s-]*музык\w*"
