@@ -22,6 +22,19 @@ SEARCH_RE = re.compile(
 URL_RE = re.compile(r"https?://[^\s)]+", re.I)
 
 
+def normalize_requested_model(model_id: str) -> str:
+    """
+    Open WebUI шлёт model как «gpthub-auto» или с префиксом провайдера, напр. openai/gpthub-auto.
+    Без нормализации роутер не узнаёт авто-режим и MWS может получить несуществующий id.
+    """
+    s = (model_id or "").strip()
+    if not s:
+        return ""
+    if "/" in s:
+        s = s.rsplit("/", 1)[-1]
+    return s.strip()
+
+
 def _content_to_text(content: Any) -> str:
     if content is None:
         return ""
@@ -81,7 +94,7 @@ def pick_route(
     """
     Returns (resolved_model_id, route_note).
     """
-    req = (requested_model or "").strip()
+    req = normalize_requested_model(requested_model)
     if req and req != settings.auto_model_id:
         mid = req if req in available_ids else settings.default_llm
         return mid, "manual"

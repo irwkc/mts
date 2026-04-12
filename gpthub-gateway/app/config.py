@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     rag_top_k: int = 5
     chunk_size: int = 900
     chunk_overlap: int = 120
+
+    # Префикс [GPTHub route: …] в system при true (демо / отладка)
+    router_debug: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_DEBUG")
 
 
 settings = Settings()

@@ -19,6 +19,7 @@ from app.mws_client import MWSClient
 from app.rag_store import RAGStore, extract_embeddable_documents
 from app.router_logic import (
     IMAGE_GEN_RE,
+    inject_router_debug,
     last_user_message,
     pick_route,
     _content_to_text,
@@ -26,9 +27,11 @@ from app.router_logic import (
     message_has_audio,
 )
 from app.web_tools import (
+    deep_research_ddg,
     extract_urls,
     fetch_url_text,
     search_query_from_text,
+    should_run_deep_research,
     should_run_web_search,
     web_search_ddg,
 )
@@ -79,6 +82,7 @@ def merge_models_payload(mws_json: dict[str, Any]) -> dict[str, Any]:
                 "object": "model",
                 "created": int(time.time()),
                 "owned_by": "gpthub",
+                "name": "GPTHub Auto (router)",
             },
         )
     return {"object": "list", "data": data}
@@ -250,6 +254,12 @@ async def chat_completions(request: Request) -> Response:
 
     available = await get_available_model_ids()
     resolved_model, route_note = pick_route(messages, requested_model, available)
+    logger.info(
+        "chat route requested=%r -> model=%s note=%s",
+        requested_model,
+        resolved_model,
+        route_note,
+    )
 
     # Долгосрочная память + RAG scope
     lu = last_user_message(messages)
@@ -269,9 +279,12 @@ async def chat_completions(request: Request) -> Response:
         if rag_ctx:
             extra_parts.append(rag_ctx)
 
-    if should_run_web_search(last_text):
-        q = search_query_from_text(last_text)
-        extra_parts.append(web_search_ddg(q))
+    if last_text:
+        if should_run_deep_research(last_text):
+            extra_parts.append(deep_research_ddg(last_text))
+        elif should_run_web_search(last_text):
+            q = search_query_from_text(last_text)
+            extra_parts.append(web_search_ddg(q))
 
     for u in extract_urls(last_text):
         try:
@@ -281,6 +294,8 @@ async def chat_completions(request: Request) -> Response:
             extra_parts.append(f"URL {u}: ошибка загрузки {e}")
 
     messages = _inject_system(messages, "\n\n".join(extra_parts))
+    if settings.router_debug:
+        messages = inject_router_debug(messages, route_note, resolved_model)
 
     img_chat = await maybe_image_generation_chat(messages, route_note)
     if img_chat:

@@ -9,6 +9,12 @@ from duckduckgo_search import DDGS
 
 URL_RE = re.compile(r"https?://[^\s)>\]}]+", re.I)
 
+DEEP_RESEARCH_RE = re.compile(
+    r"(deep\s+research|глубок(ое|ий)\s+исследован|многошагов(ый|ого)\s+поиск|"
+    r"iterative\s+search|исследуй\s+тему)",
+    re.I,
+)
+
 
 def extract_urls(text: str, limit: int = 3) -> list[str]:
     found = URL_RE.findall(text or "")
@@ -62,8 +68,31 @@ def web_search_ddg(query: str, max_results: int = 5) -> str:
     return "Результаты веб-поиска:\n" + "\n\n".join(lines)
 
 
+def should_run_deep_research(last_user_text: str) -> bool:
+    t = last_user_text or ""
+    return bool(DEEP_RESEARCH_RE.search(t))
+
+
+def deep_research_ddg(topic: str, subqueries: int = 3) -> str:
+    """Несколько запросов DuckDuckGo + сырой контекст для синтеза LLM (бонус «Deep Research»)."""
+    topic = (topic or "").strip()[:500]
+    if len(topic) < 4:
+        return "(укажите тему исследования)"
+    queries = [
+        topic,
+        f"{topic[:200]} обзор ключевых фактов",
+        f"{topic[:200]} последние новости и тенденции",
+    ][:subqueries]
+    blocks: list[str] = []
+    for i, q in enumerate(queries):
+        blocks.append(f"=== Запрос {i + 1}: {q} ===\n{web_search_ddg(q, max_results=4)}")
+    return "Многошаговый веб-поиск (контекст для ответа):\n\n" + "\n\n".join(blocks)
+
+
 def should_run_web_search(last_user_text: str) -> bool:
     t = (last_user_text or "").lower()
+    if should_run_deep_research(last_user_text):
+        return False
     if any(
         k in t
         for k in (

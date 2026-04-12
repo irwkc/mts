@@ -12,6 +12,7 @@ services:
       IMAGE_GEN_MODEL: ${IMAGE_GEN_MODEL:-qwen-image}
       ASR_MODEL: ${ASR_MODEL:-whisper-large-v3}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
+      GPTHUB_ROUTER_DEBUG: ${GPTHUB_ROUTER_DEBUG:-true}
     volumes:
       - gpthub-data:/data
     ports:
@@ -42,6 +43,8 @@ services:
       OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
       OPENAI_API_KEYS: ${MWS_API_KEY:?set MWS_API_KEY in .env}
       WEBUI_URL: ${WEBUI_URL:-http://localhost:3000}
+      # Модель по умолчанию в UI — авто-роутер (см. также нормализацию provider/id в шлюзе)
+      DEFAULT_MODELS: '["gpthub-auto"]'
     volumes:
       - open-webui-data:/app/backend/data
     restart: unless-stopped
