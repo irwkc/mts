@@ -195,38 +195,6 @@
   margin-bottom: 8px;
 }
 
-#gena-presentation-dock .gena-dock-actions-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-#gena-presentation-dock a.gena-action-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 36px;
-  padding: 8px 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(99, 102, 241, 0.5);
-  background: rgba(99, 102, 241, 0.2);
-  color: #e0e7ff;
-  text-decoration: none;
-  font-size: 13px;
-  font-weight: 500;
-  font-family: ui-sans-serif, system-ui, sans-serif;
-  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
-}
-
-#gena-presentation-dock a.gena-action-btn:hover {
-  background: rgba(99, 102, 241, 0.38);
-  border-color: rgba(165, 180, 252, 0.65);
-}
-
-#gena-presentation-dock a.gena-action-btn:active {
-  transform: scale(0.98);
-}
-
 #gena-presentation-dock .gena-err {
   color: #fca5a5;
   font-size: 12px;

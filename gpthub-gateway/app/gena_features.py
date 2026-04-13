@@ -388,6 +388,13 @@ async def stream_presentation_pptx(
         preview_page = public_app_url(
             request, f"preview/pptx?path={quote(f'static/presentations/{fname}', safe='')}"
         )
+        # PPTX — сразу после сборки (конвертация PDF может долго блокировать стрим).
+        yield sse_delta(
+            "\n\n**Скачивание**\n\n"
+            f"- [PowerPoint (.pptx)]({url})\n\n"
+            f"`{url}`\n\n",
+        )
+
         pdf_path = static_dir / f"{stem}.pdf"
         pdf_ok = await ensure_pptx_pdf(fpath, pdf_path)
         pdf_href = (
@@ -396,14 +403,10 @@ async def stream_presentation_pptx(
             else public_app_url(request, f"presentation/pdf/{stem}")
         )
 
-        links_md = (
-            "**Презентация готова.**\n\n"
-            f"- [Скачать PowerPoint (.pptx)]({url})\n"
-            f"- [Скачать PDF]({pdf_href})\n\n"
-            f"[Редактор]({editor}) · [Предпросмотр в браузере]({preview_page})\n\n"
-        )
         yield sse_delta(
-            links_md,
+            f"- [PDF]({pdf_href})\n\n"
+            f"[Редактор]({editor}) · [Предпросмотр в браузере]({preview_page})\n\n"
+            f"`{pdf_href}`\n\n",
             gena={
                 "type": "presentation_complete",
                 "stem": stem,

@@ -313,25 +313,8 @@
         box.textContent = "";
         var lbl = document.createElement("div");
         lbl.className = "gena-dock-complete-label";
-        lbl.textContent = "Готово";
+        lbl.textContent = "Готово — ссылки на PPTX/PDF в сообщении чата";
         box.appendChild(lbl);
-        var row = document.createElement("div");
-        row.className = "gena-dock-actions-row";
-        function addAction(href, label) {
-          if (!href) return;
-          var a = document.createElement("a");
-          a.href = href;
-          a.className = "gena-action-btn";
-          a.target = "_blank";
-          a.rel = "noopener";
-          a.textContent = label;
-          row.appendChild(a);
-        }
-        addAction(d.download_url, "Скачать PPTX");
-        addAction(d.pdf_url, "Скачать PDF");
-        addAction(d.editor_url, "Редактор");
-        addAction(d.preview_page_url, "Предпросмотр");
-        box.appendChild(row);
       }
       return;
     }
