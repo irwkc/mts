@@ -35,6 +35,9 @@ WORKDIR /app
 # to store git revision in build
 RUN apk add --no-cache git
 
+# См. open-webui-baobab/Dockerfile: без пропуска CUDA postinstall onnxruntime-node качает гигабайты с GitHub и падает (504).
+ENV npm_config_onnxruntime_node_install_cuda=skip
+
 COPY package.json package-lock.json ./
 RUN npm ci --force
 

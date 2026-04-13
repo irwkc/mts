@@ -22,6 +22,9 @@ WORKDIR /app
 
 RUN apk add --no-cache git
 
+# onnxruntime-node postinstall тянет CUDA с GitHub — в CI часто 504; для фронта нужен только CPU.
+ENV npm_config_onnxruntime_node_install_cuda=skip
+
 COPY open-webui-src/package.json open-webui-src/package-lock.json ./
 RUN npm ci --force
 
