@@ -147,21 +147,73 @@ def should_run_web_search(last_user_text: str) -> bool:
     return bool(_WEB_SEARCH_TRIGGERS.search(t))
 
 
-def image_search_ddg_urls(query: str, max_results: int = 10) -> list[str]:
-    """Поиск картинок в интернете (DuckDuckGo images). Возвращает прямые URL изображений."""
+_IMG_URL_IN_TEXT = re.compile(
+    r"https?://[^\s<>\]\"']+\.(?:jpg|jpeg|png|webp)(?:\?[^\s<>\]\"']*)?",
+    re.I,
+)
+
+
+def _image_urls_from_ddg_text_fallback(query: str, max_urls: int = 12) -> list[str]:
+    """Если ddgs.images пустой или заблокирован — вытащить прямые ссылки на jpg/png из текстовой выдачи."""
+    q = (query or "").strip()[:400]
+    if len(q) < 2:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    try:
+        with DDGS() as ddgs:
+            for r in ddgs.text(f"{q} photo picture image", max_results=8):
+                blob = f"{r.get('body') or ''} {r.get('href') or ''}"
+                for m in _IMG_URL_IN_TEXT.finditer(blob):
+                    u = m.group(0).rstrip(").,;]")
+                    if u.startswith("http") and u not in seen:
+                        seen.add(u)
+                        out.append(u)
+                    if len(out) >= max_urls:
+                        return out
+    except Exception as e:
+        logger.warning("image_urls_from_ddg_text_fallback: %s", e)
+    return out
+
+
+def image_search_ddg_urls(query: str, max_results: int = 24) -> list[str]:
+    """Поиск картинок в интернете (DuckDuckGo images). Сначала type_image=photo (реальные фото)."""
     q = (query or "").strip()[:500]
     if len(q) < 2:
         return []
     urls: list[str] = []
+    seen: set[str] = set()
+
+    def consume(gen) -> None:
+        for r in gen:
+            u = (r.get("image") or r.get("thumbnail") or "").strip()
+            if u.startswith("http") and u not in seen:
+                seen.add(u)
+                urls.append(u)
+            if len(urls) >= max_results:
+                break
+
     try:
         with DDGS() as ddgs:
-            for r in ddgs.images(q, max_results=max_results):
-                u = (r.get("image") or r.get("thumbnail") or "").strip()
-                if u.startswith("http") and u not in urls:
-                    urls.append(u)
+            photo_used = False
+            try:
+                consume(ddgs.images(q, max_results=max_results, type_image="photo"))
+                photo_used = True
+            except TypeError:
+                consume(ddgs.images(q, max_results=max_results))
+            if photo_used and len(urls) < max(6, max_results // 3):
+                consume(ddgs.images(q, max_results=max_results))
     except Exception as e:
         logger.warning("image_search_ddg_urls: %s", e)
-    return urls
+
+    if len(urls) < 3:
+        for u in _image_urls_from_ddg_text_fallback(q, max_urls=14):
+            if u not in seen:
+                seen.add(u)
+                urls.append(u)
+            if len(urls) >= max_results:
+                break
+    return urls[:max_results]
 
 
 def search_query_from_text(last_user_text: str) -> str:

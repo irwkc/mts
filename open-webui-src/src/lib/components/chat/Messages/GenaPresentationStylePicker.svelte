@@ -38,9 +38,6 @@
 	role="region"
 	aria-label="Выбор стиля презентации"
 >
-	<p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-3 uppercase tracking-wide">
-		Стиль презентации
-	</p>
 	<div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
 		{#each styles as s (s.id)}
 			<button

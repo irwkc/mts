@@ -82,6 +82,11 @@
 		saveSettings({ speechAutoSend: speechAutoSend });
 	};
 
+	const toggleConversationMode = async () => {
+		conversationMode = !conversationMode;
+		saveSettings({ conversationMode: conversationMode });
+	};
+
 	onMount(async () => {
 		playbackRate = $settings.audio?.tts?.playbackRate ?? 1;
 		conversationMode = $settings.conversationMode ?? false;
@@ -157,6 +162,7 @@
 	class="flex flex-col h-full justify-between space-y-3 text-sm"
 	on:submit|preventDefault={async () => {
 		saveSettings({
+			conversationMode,
 			audio: {
 				stt: {
 					engine: STTEngine !== '' ? STTEngine : undefined,
@@ -232,6 +238,35 @@
 					aria-checked={speechAutoSend}
 				>
 					{#if speechAutoSend === true}
+						<span class="ml-2 self-center">{$i18n.t('On')}</span>
+					{:else}
+						<span class="ml-2 self-center">{$i18n.t('Off')}</span>
+					{/if}
+				</button>
+			</div>
+
+			<div class=" py-0.5 flex w-full justify-between gap-2">
+				<div class=" self-center text-xs font-medium max-w-[70%]">
+					<Tooltip
+						content={$i18n.t(
+							'After the assistant speaks, turn on the microphone for your next phrase (text chat only).'
+						)}
+						placement="top"
+					>
+						<span>{$i18n.t('Conversation mode')}</span>
+					</Tooltip>
+				</div>
+
+				<button
+					class="p-1 px-3 text-xs flex rounded-sm transition shrink-0"
+					on:click={() => {
+						toggleConversationMode();
+					}}
+					type="button"
+					role="switch"
+					aria-checked={conversationMode}
+				>
+					{#if conversationMode === true}
 						<span class="ml-2 self-center">{$i18n.t('On')}</span>
 					{:else}
 						<span class="ml-2 self-center">{$i18n.t('Off')}</span>

@@ -30,6 +30,13 @@ logger = logging.getLogger("gpthub.presentation")
 
 # Символы, недопустимые в XML 1.0 / OOXML (Keynote иначе может отказать открыть файл).
 _OOXML_ILLEGAL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+_CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
+_NEURO_SLIDE_JUNK = re.compile(
+    r"\b(presentation|slideshow|slide\s*deck|powerpoint|keynote|infographic|"
+    r"bullet\s*points?|title\s*bar|layout\s+with|chart\s+with\s+text|"
+    r"with\s+(?:a\s+)?title|mock\s*ups?|ui\s+elements?|poster\s+with\s+text)\b",
+    re.I,
+)
 
 
 def sanitize_ooxml_text(s: str, max_len: int = 32000) -> str:
@@ -326,7 +333,7 @@ async def download_first_web_image(urls: list[str]) -> Optional[Path]:
     }
     d = settings.data_dir / "static" / "images"
     d.mkdir(parents=True, exist_ok=True)
-    for url in urls[:12]:
+    for url in urls[:28]:
         if not (url.startswith("http://") or url.startswith("https://")):
             continue
         try:
@@ -423,11 +430,36 @@ async def _href_to_local_path(href: str) -> Optional[Path]:
     return None
 
 
-def _slide_image_search_queries(row: dict[str, Any]) -> list[str]:
-    """Несколько запросов для DDG Images: основной + усилители (часто пустой первый проход)."""
+def normalize_slide_rows_for_images(slides_data: list[dict[str, Any]], deck_title: str) -> None:
+    """Перед поиском: не пустой image_query; кириллица — усилить англ. ключами для DDG."""
+    dt = (deck_title or "").strip()
+    for row in slides_data:
+        if not isinstance(row, dict):
+            continue
+        iq = (row.get("image_query") or "").strip()
+        title = str(row.get("title") or "").strip()
+        if len(iq) < 2:
+            row["image_query"] = (f"{dt} {title}".strip() if dt else title)[:500]
+            iq = (row.get("image_query") or "").strip()
+        lat = len(re.findall(r"[a-zA-Z]", iq))
+        if _CYRILLIC_RE.search(iq) and lat < 4:
+            row["image_query"] = f"{iq} photo stock image"[:500]
+
+
+def _sanitize_neuro_slide_prompt(prompt: str) -> str:
+    """Убрать слова, из-за которых диффузор рисует «слайды» с псевдотекстом."""
+    t = _NEURO_SLIDE_JUNK.sub(" ", prompt or "")
+    return re.sub(r"\s+", " ", t).strip()[:3500]
+
+
+def _slide_image_search_queries(row: dict[str, Any], deck_title: str = "") -> list[str]:
+    """Несколько запросов для DDG Images: тема + фото/сток/wikimedia."""
     q = (row.get("image_query") or "").strip()
     title = str(row.get("title") or "").strip()
+    dt = (deck_title or "").strip()
     base = (q or title)[:500]
+    if len(base) < 2 and dt:
+        base = f"{dt} {title}".strip()[:500]
     if len(base) < 2:
         return []
     out: list[str] = []
@@ -445,9 +477,12 @@ def _slide_image_search_queries(row: dict[str, Any]) -> list[str]:
 
     add(base)
     add(f"{base} photo")
-    add(f"{base} stock image")
+    add(f"{base} stock photo")
     add(f"{base} photography")
-    return out[:8]
+    if dt and dt.casefold() not in base.casefold():
+        add(f"{dt} {base}"[:500])
+    add(f"{base} site:wikimedia.org")
+    return out[:10]
 
 
 async def generate_slide_image(
@@ -455,30 +490,43 @@ async def generate_slide_image(
     image_model: str,
     prompt_en: str,
 ) -> Optional[Path]:
-    """Одна картинка для слайда; файл на диске для add_picture."""
+    """Фолбэк: одна картинка без текста; не «слайд» и не инфографика."""
+    raw = _sanitize_neuro_slide_prompt(prompt_en)
     p = (
-        "Professional presentation slide illustration, clean modern flat or soft 3D style, "
-        "vivid colors, generous whitespace. "
-        "CRITICAL: absolutely no text, no letters, no numbers, no captions, no labels, "
-        "no logos, no watermarks, no typography, no infographics with writing, "
-        "no UI mockups with text, no signs with readable words — pure visual scene only. "
-        + (prompt_en or "")[:3500]
+        "Single photorealistic photograph or cinematic wide shot, natural lighting, "
+        "sharp focus, environmental context, editorial quality. "
+        "NOT a slide, NOT a poster, NOT an infographic, NOT a diagram with labels. "
+        "ABSOLUTELY NO text, letters, numbers, captions, watermarks, logos, typography, "
+        "fake writing, gibberish script, chart labels, UI, speech bubbles. "
+        "Pure image only. "
+        + raw
+        + " . No text anywhere."
     )
+    body: dict[str, Any] = {
+        "model": image_model,
+        "prompt": p[:4000],
+        "n": 1,
+        "size": "1024x1024",
+        "response_format": "b64_json",
+        "negative_prompt": (
+            "text, words, letters, typography, watermark, logo, caption, title, subtitle, "
+            "infographic, chart text, UI, mockup, label, poster, slide, presentation, "
+            "gibberish writing, cyrillic text, latin text, numbers on image, signage"
+        )[:2000],
+    }
     try:
-        resp = await client.post_json(
-            "/images/generations",
-            {
-                "model": image_model,
-                "prompt": p,
-                "n": 1,
-                "size": "1024x1024",
-                "response_format": "b64_json",
-            },
-        )
+        resp = await client.post_json("/images/generations", body)
         href = await image_api_response_to_sse_href(resp, settings.data_dir)
         return await _href_to_local_path(href)
     except Exception as e:
         logger.warning("slide image generation failed: %s", e)
+        if body.pop("negative_prompt", None) is not None:
+            try:
+                resp = await client.post_json("/images/generations", body)
+                href = await image_api_response_to_sse_href(resp, settings.data_dir)
+                return await _href_to_local_path(href)
+            except Exception as e2:
+                logger.warning("slide image generation retry without negative_prompt: %s", e2)
         return None
 
 
@@ -715,6 +763,7 @@ async def _resolve_one_slide_image(
     client: MWSClient,
     row: dict[str, Any],
     model_id: str,
+    deck_title: str = "",
 ) -> Optional[Path]:
     """Картинка: сначала веб (DDG), затем нейро. Режим влияет только на обязательность нейро-fallback."""
     mode = str(row.get("image_mode") or "auto").strip().lower()
@@ -723,10 +772,10 @@ async def _resolve_one_slide_image(
         ip = row.get("image_prompt")
         title = str(row.get("title") or "")
         if isinstance(ip, str) and ip.strip():
-            prompt = ip.strip()
+            prompt = _sanitize_neuro_slide_prompt(ip.strip())
         else:
-            prompt = (
-                f"Illustration for presentation slide: {title}. Topics: {row.get('bullets', [])}"
+            prompt = _sanitize_neuro_slide_prompt(
+                f"Photograph of subject matter: {title}. Context: {row.get('bullets', [])}"
             )
         try:
             return await generate_slide_image(client, model_id, prompt)
@@ -736,14 +785,16 @@ async def _resolve_one_slide_image(
 
     async def try_web() -> Optional[Path]:
         """Несколько формулировок запроса — иначе DDG часто отдаёт пусто или битые URL."""
-        for sq in _slide_image_search_queries(row):
-            urls = image_search_ddg_urls(sq, max_results=12)
+        for sq in _slide_image_search_queries(row, deck_title):
+            urls = image_search_ddg_urls(sq, max_results=28)
             if not urls:
                 logger.debug("slide image DDG: no urls for query=%r", sq[:80])
                 continue
             got = await download_first_web_image(urls)
             if got:
+                logger.info("slide image: web ok query=%r", sq[:100])
                 return got
+        logger.warning("slide image: web search failed for all queries, falling back to neuro")
         return None
 
     # Всегда в приоритете реальные изображения из сети (в т.ч. при image_mode=generate —
@@ -766,6 +817,7 @@ async def resolve_slide_images_progress(
     client: MWSClient,
     slides_data: list[dict[str, Any]],
     available_ids: set[str],
+    deck_title: str = "",
 ):
     """По мере готовности каждого изображения: (индекс слайда, путь или None). Параллельно до 3 потоков."""
     if not slides_data:
@@ -775,7 +827,7 @@ async def resolve_slide_images_progress(
 
     async def wrapped(i: int, row: dict[str, Any]) -> tuple[int, Optional[Path]]:
         async with sem:
-            p = await _resolve_one_slide_image(client, row, model_id)
+            p = await _resolve_one_slide_image(client, row, model_id, deck_title=deck_title)
         return i, p
 
     coros = [wrapped(i, row) for i, row in enumerate(slides_data)]
@@ -788,10 +840,13 @@ async def resolve_slide_images(
     client: MWSClient,
     slides_data: list[dict[str, Any]],
     available_ids: set[str],
+    deck_title: str = "",
 ) -> list[Optional[Path]]:
     """По одному изображению на слайд: веб и/или генерация."""
     n = len(slides_data)
     paths: list[Optional[Path]] = [None] * n
-    async for i, p in resolve_slide_images_progress(client, slides_data, available_ids):
+    async for i, p in resolve_slide_images_progress(
+        client, slides_data, available_ids, deck_title=deck_title
+    ):
         paths[i] = p
     return paths

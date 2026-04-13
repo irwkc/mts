@@ -20,6 +20,7 @@
 		config,
 		models,
 		settings,
+		showCallOverlay,
 		temporaryChatEnabled,
 		TTSWorker,
 		user
@@ -261,7 +262,7 @@
 
 					speech.onend = () => {
 						speaking = false;
-						if ($settings.conversationMode) {
+						if ($settings.conversationMode && !$showCallOverlay) {
 							document.getElementById('voice-input-button')?.click();
 						}
 					};
@@ -279,6 +280,9 @@
 			$audioQueue.onStopped = () => {
 				speaking = false;
 				speakingIdx = undefined;
+				if ($settings.conversationMode && !$showCallOverlay) {
+					document.getElementById('voice-input-button')?.click();
+				}
 			};
 
 			loadingSpeech = true;
@@ -805,11 +809,32 @@
 							class="w-full flex flex-col relative {edit ? 'hidden' : ''}"
 							id="response-content-container"
 						>
-							{#if assistantContentEmpty && !message.done && !message.error && !hasVisibleStatus}
+							{#if $showCallOverlay && !message.done && !message.error && !hasVisibleStatus}
+								<div
+									class="flex items-center gap-3 rounded-2xl px-4 py-4 bg-gray-100/90 dark:bg-gray-850/80 border border-gray-200/60 dark:border-gray-700/50 text-gray-700 dark:text-gray-200 text-sm"
+									aria-live="polite"
+								>
+									<span class="relative flex h-2.5 w-2.5 shrink-0">
+										<span
+											class="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-60"
+										></span>
+										<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-teal-500"
+										></span>
+									</span>
+									<span>{$i18n.t('Voice response in progress…')}</span>
+								</div>
+							{:else if assistantContentEmpty && !message.done && !message.error && !hasVisibleStatus}
 								<Skeleton />
 							{:else if !assistantContentEmpty && message.error !== true}
 								<!-- always show message contents even if there's an error -->
 								<!-- unless message.error === true which is legacy error handling, where the error message is stored in message.content -->
+								{#if $showCallOverlay && message.done}
+									<div
+										class="text-[0.65rem] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2"
+									>
+										{$i18n.t('Transcript')}
+									</div>
+								{/if}
 								<ContentRenderer
 									id={`${chatId}-${message.id}`}
 									messageId={message.id}

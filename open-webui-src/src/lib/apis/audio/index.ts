@@ -1,13 +1,23 @@
 import { AUDIO_API_BASE_URL } from '$lib/constants';
 
+/** Пустой/битый токен в Authorization ломает сессию по cookie (JWT decode «undefined» → 401). */
+function authBearerHeaders(token: string | undefined | null): Record<string, string> {
+	const t = (token ?? '').trim();
+	if (!t || t === 'undefined' || t === 'null') {
+		return {};
+	}
+	return { Authorization: `Bearer ${t}` };
+}
+
 export const getAudioConfig = async (token: string) => {
 	let error = null;
 
 	const res = await fetch(`${AUDIO_API_BASE_URL}/config`, {
 		method: 'GET',
+		credentials: 'include',
 		headers: {
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			...authBearerHeaders(token)
 		}
 	})
 		.then(async (res) => {
@@ -39,9 +49,10 @@ export const updateAudioConfig = async (token: string, payload: OpenAIConfigForm
 
 	const res = await fetch(`${AUDIO_API_BASE_URL}/config/update`, {
 		method: 'POST',
+		credentials: 'include',
 		headers: {
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			...authBearerHeaders(token)
 		},
 		body: JSON.stringify({
 			...payload
@@ -74,9 +85,10 @@ export const transcribeAudio = async (token: string, file: File, language?: stri
 	let error = null;
 	const res = await fetch(`${AUDIO_API_BASE_URL}/transcriptions`, {
 		method: 'POST',
+		credentials: 'include',
 		headers: {
 			Accept: 'application/json',
-			authorization: `Bearer ${token}`
+			...authBearerHeaders(token)
 		},
 		body: data
 	})
@@ -107,9 +119,10 @@ export const synthesizeOpenAISpeech = async (
 
 	const res = await fetch(`${AUDIO_API_BASE_URL}/speech`, {
 		method: 'POST',
+		credentials: 'include',
 		headers: {
-			Authorization: `Bearer ${token}`,
-			'Content-Type': 'application/json'
+			'Content-Type': 'application/json',
+			...authBearerHeaders(token)
 		},
 		body: JSON.stringify({
 			input: text,
@@ -144,9 +157,10 @@ export const getModels = async (token: string = ''): Promise<AvailableModelsResp
 
 	const res = await fetch(`${AUDIO_API_BASE_URL}/models`, {
 		method: 'GET',
+		credentials: 'include',
 		headers: {
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			...authBearerHeaders(token)
 		}
 	})
 		.then(async (res) => {
@@ -172,9 +186,10 @@ export const getVoices = async (token: string = '') => {
 
 	const res = await fetch(`${AUDIO_API_BASE_URL}/voices`, {
 		method: 'GET',
+		credentials: 'include',
 		headers: {
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			...authBearerHeaders(token)
 		}
 	})
 		.then(async (res) => {

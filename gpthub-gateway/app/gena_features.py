@@ -18,6 +18,7 @@ from app.config import settings
 from app.image_utils import image_api_response_to_sse_href
 from app.presentation_pptx import (
     build_colorful_pptx,
+    normalize_slide_rows_for_images,
     parse_presentation_json,
     resolve_slide_images_progress,
     write_presentation_sidecar,
@@ -42,11 +43,32 @@ logger = logging.getLogger("gpthub.gena")
 
 _MD_IMG_URL = re.compile(r"!\[[^\]]*\]\((https?://[^)\s]+)\)")
 
+# Только явные правки визуала / «ещё картинку». Без голого «сделай» и без «цвет/размер» —
+# иначе ловятся «сделай вывод», «какого цвета жираф», «какой размер».
 _IMAGE_EDIT_FOLLOWUP = re.compile(
-    r"(?:измени|изменить|добавь|убери|перерисуй|ещ[ёе]\s|другой|другая|другие|цвет|фон|размер|"
-    r"сделай|кольцо|картин|изображен|фото|рисунок|вариант|верси|похож|исправ|замени|"
-    r"change|edit|remove|add |another|different|more |less |brighter|darker)",
+    r"(?:"
+    r"измени|изменить|перерисуй|перекрась|убери|добавь\s+(?:на\s+)?(?:картин|фото|фон|небо|объект)|"
+    r"ещ[ёе]\s*(?:вариант|картин|фото|раз|верси)|"
+    r"другой\s+вариант|другая\s+верси|другую\s+картин|"
+    r"сделай\s+(?:картин|фотк|фото|изображен|рисунок|ярче|темнее|контраст|светлее|"
+    r"ещё|еще|похож|аналог|вариант|фон\s|небо|облак)|"
+    r"кольцо|картин|изображен|фото|рисунок|вариант|верси|похож|исправ|замени|"
+    r"change|edit|remove|add\s|another|different|more\s|less\s|brighter|darker|"
+    r"upscale|inpaint|outpaint"
+    r")",
     re.I,
+)
+
+# Сообщение явно просит факты/текст — не считать это запросом на новую картинку после предыдущей.
+_TEXT_NOT_IMAGE_FOLLOWUP = re.compile(
+    r"(?is)^\s*(?:"
+    r"сколько\b|когда\b|почему\b|зачем\b|откуда\b|куда\b|"
+    r"какой\b|какая\b|какое\b|какие\b|какого\b|какому\b|каких\b|"
+    r"кто\s+так(ой|ая|ие)\b|что\s+такое\b|чем\s+отличается|чем\s+отличаются|в\s+чём\s+разница|"
+    r"объясни\b|опиши\b|расскажи\b|сравни\b|переведи\b|"
+    r"how\s+much\b|how\s+many\b|what\s+is\b|what\s+are\b|why\b|when\b|where\b|who\s+is\b|"
+    r"define\b|explain\b"
+    r")\b",
 )
 
 
@@ -86,6 +108,8 @@ def _image_followup_after_assistant_picture(last_text: str, messages: list[dict[
         return False
     if re.match(r"^(спасибо|благодарю|thanks|thank you|ok\.?|ок\.?|понятно)\s*$", t, re.I):
         return False
+    if _TEXT_NOT_IMAGE_FOLLOWUP.search(t):
+        return False
     if not _collect_assistant_image_urls(messages, max_n=1) and not _last_assistant_has_markdown_image(
         messages
     ):
@@ -94,7 +118,10 @@ def _image_followup_after_assistant_picture(last_text: str, messages: list[dict[
         return False
     if _IMAGE_EDIT_FOLLOWUP.search(last_text):
         return True
-    return len(t) <= 400
+    # Раньше здесь было len(t)<=400 — из-за этого любой короткий вопрос после картинки
+    # (напр. «сколько весит жираф») уходил в генерацию. Оставляем только явные правки выше
+    # и прямые команды из IMAGE_GEN_RE в user_wants_image_generation.
+    return False
 
 
 def user_wants_image_generation(
@@ -506,7 +533,8 @@ async def stream_presentation_pptx(
         '"accent":"#RRGGBB",'
         '"image_mode":"auto|search|generate",'
         '"image_query":"ОБЯЗАТЕЛЬНО на английском: 3–8 ключевых слов для поиска фото/стока в интернете (не пусто); тема слайда одной строкой",'
-        '"image_prompt":"Только если веб не найдёт картинку: краткое описание сцены на английском для нейро-иллюстрации; БЕЗ текста/надписей/логотипов на изображении",'
+        '"image_prompt":"Только для нейро-фолбэка: описание РЕАЛЬНОЙ сцены/фото на английском (животные, пейзаж, объект). '
+        'НЕ слова presentation/slide/infographic/layout; БЕЗ текста на картинке; без «слайда» и «постера».",'
         '"sources":[{"title":"кратко","url":"https://..."}],'
         '"visual_style":"corporate|modern|bold|compact"}'
         "]}\n"
@@ -543,6 +571,8 @@ async def stream_presentation_pptx(
         if len(slides_data) < 1:
             raise ValueError("no slides in JSON")
 
+        normalize_slide_rows_for_images(slides_data, deck_title or "")
+
         summary = _slides_gena_summary(slides_data)
         # План слайдов только в доке (deck_structure), не дублировать списком в чате
         yield sse_delta(
@@ -567,7 +597,7 @@ async def stream_presentation_pptx(
         image_paths: list[Optional[Path]] = [None] * len(slides_data)
         done = 0
         async for idx, img_path in resolve_slide_images_progress(
-            client, slides_data, available_ids
+            client, slides_data, available_ids, deck_title=deck_title or ""
         ):
             image_paths[idx] = img_path
             done += 1

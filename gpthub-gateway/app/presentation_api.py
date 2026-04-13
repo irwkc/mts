@@ -133,7 +133,9 @@ async def rebuild_pptx(stem: str) -> dict[str, Any]:
     deck_title = str(data.get("deck_title") or "")
     out_pptx = pptx_path(stem)
     available = await _model_ids()
-    image_paths = await resolve_slide_images(_mws, slides, available)
+    image_paths = await resolve_slide_images(
+        _mws, slides, available, deck_title=deck_title
+    )
     build_colorful_pptx(slides, image_paths, out_pptx, deck_title=deck_title)
     logger.info("pptx rebuilt stem=%s path=%s", stem, out_pptx)
     return {
