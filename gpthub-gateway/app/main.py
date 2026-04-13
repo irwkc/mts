@@ -12,10 +12,10 @@ from pathlib import Path
 from typing import Any, Optional
 
 import httpx
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from urllib.parse import quote
 
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
@@ -40,7 +40,8 @@ from app.memory_context import (
 )
 from app.memory_store import MemoryStore
 from app.mws_client import MWSClient
-from app.presentation_api import router as presentation_api_router
+from app.presentation_api import pptx_path, router as presentation_api_router, validate_stem
+from app.pptx_pdf import ensure_pptx_pdf
 from app.rag_store import RAGStore, extract_embeddable_documents
 from app.router_logic import (
     IMAGE_GEN_RE,
@@ -281,6 +282,27 @@ iframe {{ width: 100%; height: calc(100vh - 120px); border: 0; background: #000;
 <iframe src="{office}" title="pptx preview"></iframe>
 </body></html>"""
     return HTMLResponse(html)
+
+
+@app.get("/presentation/pdf/{stem}")
+async def presentation_pdf_download(stem: str) -> FileResponse:
+    """Скачивание PDF (конвертация PPTX через LibreOffice при первом запросе)."""
+    stem_ok = validate_stem(stem)
+    pptx = pptx_path(stem_ok)
+    pdf = pptx.parent / f"{stem_ok}.pdf"
+    if not pptx.is_file():
+        raise HTTPException(status_code=404, detail="PPTX not found")
+    ok = await ensure_pptx_pdf(pptx, pdf)
+    if not ok:
+        raise HTTPException(
+            status_code=503,
+            detail="PDF conversion unavailable (LibreOffice / soffice not installed or failed)",
+        )
+    return FileResponse(
+        path=str(pdf),
+        media_type="application/pdf",
+        filename=f"{stem_ok}.pdf",
+    )
 
 
 app.include_router(presentation_api_router)

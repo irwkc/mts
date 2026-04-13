@@ -428,23 +428,26 @@
       if (box) {
         box.textContent = "";
         var lbl = document.createElement("div");
-        lbl.style.fontSize = "11px";
-        lbl.style.color = "#9ca3af";
-        lbl.style.marginBottom = "6px";
+        lbl.className = "gena-dock-complete-label";
         lbl.textContent = "Готово";
         box.appendChild(lbl);
-        function addLink(href, label) {
+        var row = document.createElement("div");
+        row.className = "gena-dock-actions-row";
+        function addAction(href, label) {
           if (!href) return;
           var a = document.createElement("a");
           a.href = href;
+          a.className = "gena-action-btn";
           a.target = "_blank";
           a.rel = "noopener";
           a.textContent = label;
-          box.appendChild(a);
+          row.appendChild(a);
         }
-        addLink(d.download_url, "Скачать PPTX");
-        addLink(d.editor_url, "Редактор");
-        addLink(d.preview_page_url, "Предпросмотр");
+        addAction(d.download_url, "Скачать PPTX");
+        addAction(d.pdf_url, "Скачать PDF");
+        addAction(d.editor_url, "Редактор");
+        addAction(d.preview_page_url, "Предпросмотр");
+        box.appendChild(row);
       }
       return;
     }

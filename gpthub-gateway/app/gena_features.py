@@ -24,6 +24,7 @@ from app.presentation_pptx import (
     write_presentation_sidecar,
 )
 from app.mws_client import MWSClient
+from app.pptx_pdf import ensure_pptx_pdf
 from app.router_logic import IMAGE_GEN_RE, MUSIC_GEN_RE, PRESENTATION_RE, gena_chat_target
 from app.web_tools import (
     deep_research_ddg,
@@ -133,12 +134,32 @@ def public_static_url(request: Request, rel_path: str) -> str:
     return str(request.base_url).rstrip("/") + "/" + rel_path
 
 
-def presentation_preview_markdown(request: Request, fname: str) -> str:
-    """Одна ссылка: страница шлюза с iframe (рядом с тем же origin, что и PPTX)."""
-    rel = f"static/presentations/{fname}"
-    base = str(request.base_url).rstrip("/")
-    page = f"{base}/preview/pptx?path={quote(rel, safe='')}"
-    return f"[Предпросмотр]({page})\n\n"
+def public_app_url(request: Request, path: str) -> str:
+    """Публичный URL к маршруту шлюза (включая query), не только /static/.
+
+    Нужен для /presentation/editor/, /preview/pptx — иначе в чат попадает
+    http://gpthub-gateway:8080/... (Docker DNS), недоступный из браузера.
+    """
+    raw = (path or "").strip()
+    if raw.startswith(("http://", "https://")):
+        return raw
+    p = raw.lstrip("/")
+    base = (settings.public_base_url or "").strip().rstrip("/")
+    if base:
+        return f"{base}/{p}"
+
+    fwd = (request.headers.get("x-forwarded-host") or "").strip()
+    if fwd:
+        host = fwd.split(",")[0].strip()
+        proto = (request.headers.get("x-forwarded-proto") or "https").strip().split(",")[0].strip()
+        if proto not in ("http", "https"):
+            proto = "https"
+        return f"{proto}://{host}/{p}"
+
+    if (request.url.hostname or "").lower() == "gpthub-gateway":
+        return f"/{p}"
+
+    return str(request.base_url).rstrip("/") + "/" + p
 
 
 # Выбор стиля в Open WebUI: пользователь жмёт кнопку → в чат уходит «[gena_style:id] …».
@@ -222,7 +243,7 @@ async def stream_presentation_pptx(
     clean_prompt, style_id = split_presentation_style(prompt)
     if not style_id:
         yield sse_delta(
-            "",
+            "**Выберите стиль презентации** — кнопки внизу экрана. После выбора запрос уйдёт снова автоматически.\n\n",
             gena={
                 "type": "presentation_style_prompt",
                 "prompt_plain": clean_prompt,
@@ -374,18 +395,23 @@ async def stream_presentation_pptx(
             stem=stem,
         )
         url = public_static_url(request, f"static/presentations/{fname}")
-        base = str(request.base_url).rstrip("/")
-        preview_page = f"{base}/preview/pptx?path={quote(f'static/presentations/{fname}', safe='')}"
-        editor = f"{base}/presentation/editor/?stem={stem}"
+        editor = public_app_url(request, f"presentation/editor/?stem={stem}")
+        preview_page = public_app_url(
+            request, f"preview/pptx?path={quote(f'static/presentations/{fname}', safe='')}"
+        )
+        pdf_path = static_dir / f"{stem}.pdf"
+        pdf_ok = await ensure_pptx_pdf(fpath, pdf_path)
+        pdf_url = public_static_url(request, f"static/presentations/{stem}.pdf") if pdf_ok else None
+
         yield sse_delta(
-            f"✅ [Скачать PPTX]({url}) · [Редактор]({editor})\n\n"
-            + presentation_preview_markdown(request, fname),
+            "Презентация готова. Скачать PPTX или PDF, открыть редактор и предпросмотр — в панели **gena · презентация** справа.\n\n",
             gena={
                 "type": "presentation_complete",
                 "stem": stem,
                 "download_url": url,
                 "editor_url": editor,
                 "preview_page_url": preview_page,
+                "pdf_url": pdf_url,
                 "pptx_rel": f"static/presentations/{fname}",
                 "slide_count": len(slides_data),
             },
