@@ -17,6 +17,7 @@
 
 	import { WEBUI_VERSION, WEBUI_API_BASE_URL } from '$lib/constants';
 	import { compareVersion } from '$lib/utils';
+	import { webuiLog } from '$lib/utils/webuiClientLog';
 
 	import {
 		config,
@@ -111,12 +112,12 @@
 	};
 
 	const setModels = async () => {
-		models.set(
-			await getModels(
-				localStorage.token,
-				$config?.features?.enable_direct_connections ? ($settings?.directConnections ?? null) : null
-			)
+		const list = await getModels(
+			localStorage.token,
+			$config?.features?.enable_direct_connections ? ($settings?.directConnections ?? null) : null
 		);
+		models.set(list);
+		webuiLog('bootstrap:models_loaded', { count: Array.isArray(list) ? list.length : 0 });
 	};
 
 	const setToolServers = async () => {
@@ -208,7 +209,10 @@
 			setTools().catch((e) => console.error('Failed to load tools:', e)),
 			setUserSettings(async () => {
 				await Promise.all([
-					setModels().catch((e) => console.error('Failed to load models:', e)),
+					setModels().catch((e) => {
+						console.error('Failed to load models:', e);
+						webuiLog('bootstrap:models_failed', { error: e });
+					}),
 					setToolServers().catch((e) => console.error('Failed to load tool servers:', e))
 				]);
 			}).catch((e) => console.error('Failed to load user settings:', e))

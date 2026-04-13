@@ -209,7 +209,18 @@ def _patch_stream_chunk_for_ui(j: dict[str, Any]) -> None:
                         break
 
 
-logging.basicConfig(level=logging.INFO)
+def _configure_logging() -> None:
+    level = getattr(logging, settings.log_level, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
+    for name in ("httpx", "httpcore", "httpcore.connection", "hpack"):
+        logging.getLogger(name).setLevel(level)
+
+
+_configure_logging()
 logger = logging.getLogger("gpthub")
 
 app = FastAPI(title="GPTHub Gateway", version="1.0.0")

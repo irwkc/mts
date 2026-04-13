@@ -23,6 +23,20 @@ class Settings(BaseSettings):
             return Path("/data")
         return Path(str(v))
 
+    log_level: str = Field(
+        default="INFO",
+        validation_alias="GPTHUB_LOG_LEVEL",
+        description="Уровень логов шлюза: DEBUG, INFO, WARNING, ERROR",
+    )
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def normalize_log_level(cls, v: object) -> str:
+        s = str(v or "INFO").strip().upper()
+        if s in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+            return s
+        return "INFO"
+
     # Router / defaults (override via env after GET /v1/models on real deployment)
     auto_model_id: str = "gpthub-auto"
     # Отображаемое имя авто-модели в UI (список моделей Open WebUI)

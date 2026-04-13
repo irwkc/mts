@@ -33,6 +33,7 @@ services:
       GPTHUB_GENA_LONG_DOC_MODEL: ${GPTHUB_GENA_LONG_DOC_MODEL:-cotype-pro-vl-32b}
       GPTHUB_GENA_CHAT_MODEL: ${GPTHUB_GENA_CHAT_MODEL:-}
       GPTHUB_AUTO_MODEL_DISPLAY_NAME: "${GPTHUB_AUTO_MODEL_DISPLAY_NAME:-gena 2.0}"
+      GPTHUB_LOG_LEVEL: ${GPTHUB_LOG_LEVEL:-DEBUG}
     volumes:
       - gpthub-data:/data
     ports:
@@ -59,6 +60,7 @@ services:
     environment:
       # Иначе настройки из SQLite перекрывают AUDIO_* из compose — STT/TTS «молчат»
       ENABLE_PERSISTENT_CONFIG: "false"
+      GLOBAL_LOG_LEVEL: ${GLOBAL_LOG_LEVEL:-DEBUG}
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-gpthub-change-me-in-production}
       # Админ при пустой БД (только первый старт); иначе залогиньтесь существующим юзером
       WEBUI_ADMIN_EMAIL: ${WEBUI_ADMIN_EMAIL:-test@mail.ru}

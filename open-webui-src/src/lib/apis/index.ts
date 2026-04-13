@@ -1,5 +1,6 @@
 import { WEBUI_BASE_URL } from '$lib/constants';
 import { convertOpenApiToToolPayload } from '$lib/utils';
+import { webuiLog } from '$lib/utils/webuiClientLog';
 import { getOpenAIModelsDirect } from './openai';
 
 const TOOL_SERVER_FETCH_TIMEOUT = 10000;
@@ -36,6 +37,7 @@ export const getModels = async (
 		.catch((err) => {
 			error = err;
 			console.error(err);
+			webuiLog('api:models:fetch_error', { detail: err });
 			return null;
 		});
 
@@ -44,6 +46,7 @@ export const getModels = async (
 	}
 
 	let models = res?.data ?? [];
+	webuiLog('api:models:raw_count', { count: models?.length ?? 0, base, refresh });
 
 	if (connections && !base) {
 		let localModels = [];
@@ -154,6 +157,17 @@ export const getModels = async (
 		}
 
 		models = Object.values(modelsMap);
+	}
+
+	webuiLog('api:models:result', {
+		count: Array.isArray(models) ? models.length : 0,
+		base,
+		direct: !!connections
+	});
+	if (Array.isArray(models) && models.length === 0) {
+		webuiLog('api:models:empty', {
+			hint: 'Пустой список: проверьте на сервере MWS_API_KEY, здоровье gpthub-gateway и GET /v1/models. В админке WebUI: Connections → OpenAI API включён, URL шлюза верный.'
+		});
 	}
 
 	return models;
