@@ -390,17 +390,27 @@ async def stream_presentation_pptx(
         )
         pdf_path = static_dir / f"{stem}.pdf"
         pdf_ok = await ensure_pptx_pdf(fpath, pdf_path)
-        pdf_url = public_static_url(request, f"static/presentations/{stem}.pdf") if pdf_ok else None
+        pdf_href = (
+            public_static_url(request, f"static/presentations/{stem}.pdf")
+            if pdf_ok
+            else public_app_url(request, f"presentation/pdf/{stem}")
+        )
 
+        links_md = (
+            "**Презентация готова.**\n\n"
+            f"- [Скачать PowerPoint (.pptx)]({url})\n"
+            f"- [Скачать PDF]({pdf_href})\n\n"
+            f"[Редактор]({editor}) · [Предпросмотр в браузере]({preview_page})\n\n"
+        )
         yield sse_delta(
-            "Презентация готова. Скачать PPTX или PDF, открыть редактор и предпросмотр — в панели **gena · презентация** справа.\n\n",
+            links_md,
             gena={
                 "type": "presentation_complete",
                 "stem": stem,
                 "download_url": url,
                 "editor_url": editor,
                 "preview_page_url": preview_page,
-                "pdf_url": pdf_url,
+                "pdf_url": pdf_href,
                 "pptx_rel": f"static/presentations/{fname}",
                 "slide_count": len(slides_data),
             },
