@@ -4,7 +4,7 @@
   bottom: 100px;
   left: 50%;
   transform: translateX(-50%) translateY(20px);
-  z-index: 10060;
+  z-index: 999991;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease, transform 0.2s ease;
@@ -48,7 +48,7 @@
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 10055;
+  z-index: 999992;
   max-width: min(560px, calc(100vw - 32px));
 }
 #gena-style-picker.gena-style-picker-hidden {
@@ -110,7 +110,7 @@
   top: 72px;
   width: min(380px, calc(100vw - 24px));
   max-height: min(82vh, 900px);
-  z-index: 10050;
+  z-index: 999990;
   display: flex;
   flex-direction: column;
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;

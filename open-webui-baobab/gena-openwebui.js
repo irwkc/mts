@@ -8,6 +8,84 @@
 
   var MARK = "data-gena-pptx-embed";
 
+  /* Синхронно с gpthub-gateway/app/gena_features.py PRESENTATION_STYLE_CHOICES */
+  var PRESET_STYLES = [
+    { id: "minimal", label: "Минимализм", emoji: "◻" },
+    { id: "corporate", label: "Деловой", emoji: "◼" },
+    { id: "modern", label: "Современный", emoji: "◆" },
+    { id: "bold", label: "Яркий", emoji: "●" },
+    { id: "playful", label: "Лёгкий", emoji: "◎" },
+  ];
+  var STYLE_PROMPT_SNIPPET = "Выберите стиль презентации";
+
+  /* ---------- Последний запрос пользователя (для кнопок стиля, если SSE не дошёл) ---------- */
+  function rememberLastUserPrompt(text) {
+    var t = (text || "").trim();
+    if (t) window.__genaLastUserPrompt = t;
+  }
+
+  function hookUserPromptCapture() {
+    document.addEventListener(
+      "keydown",
+      function (ev) {
+        if (ev.key !== "Enter" || ev.shiftKey) return;
+        var t = ev.target;
+        if (!t || t.tagName !== "TEXTAREA") return;
+        var v = (t.value || "").trim();
+        if (v) rememberLastUserPrompt(v);
+      },
+      true
+    );
+    document.addEventListener(
+      "click",
+      function (ev) {
+        var sb = findSendButton();
+        if (!sb || !ev.target) return;
+        if (sb === ev.target || sb.contains(ev.target)) {
+          var inp = findChatInput();
+          if (!inp) return;
+          var v =
+            inp.tagName === "TEXTAREA" || inp.tagName === "INPUT"
+              ? (inp.value || "").trim()
+              : (inp.textContent || "").trim();
+          if (v) rememberLastUserPrompt(v);
+        }
+      },
+      true
+    );
+  }
+
+  /* Резерв: текст ответа шлюза уже в DOM, а delta.gena не поймался — показать кнопки */
+  function tryDomFallbackStylePicker() {
+    var picker = document.getElementById("gena-style-picker");
+    if (picker && !picker.classList.contains("gena-style-picker-hidden")) {
+      var box = document.getElementById("gena-style-btns");
+      if (box && box.children && box.children.length > 0) return;
+    }
+    var bodyText = "";
+    try {
+      bodyText = document.body.innerText || "";
+    } catch (e) {
+      return;
+    }
+    if (bodyText.indexOf(STYLE_PROMPT_SNIPPET) === -1) return;
+    showStylePicker(PRESET_STYLES, window.__genaLastUserPrompt || "");
+  }
+
+  var _genaMoTimer = null;
+  function bootStylePromptObserver() {
+    if (!document.body) return;
+    var mo = new MutationObserver(function () {
+      if (_genaMoTimer) clearTimeout(_genaMoTimer);
+      _genaMoTimer = setTimeout(function () {
+        _genaMoTimer = null;
+        tryDomFallbackStylePicker();
+      }, 120);
+    });
+    mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+    tryDomFallbackStylePicker();
+  }
+
   /* ---------- «gena думает…» (пока идёт SSE) ---------- */
   function ensureThinkingIndicator() {
     var el = document.getElementById("gena-thinking-indicator");
@@ -142,34 +220,30 @@
     el.classList.remove("gena-style-picker-hidden");
   }
 
-  /* ---------- SSE: прозрачный поток + извлечение delta.gena ---------- */
-  function parseSseBlocks(text) {
-    var events = [];
-    var lines = text.split(/\r?\n/);
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i];
-      if (line.indexOf("data: ") !== 0) continue;
-      var raw = line.slice(6).trim();
-      if (raw === "[DONE]") continue;
-      try {
-        var j = JSON.parse(raw);
-        var g =
-          j &&
-          j.choices &&
-          j.choices[0] &&
-          j.choices[0].delta &&
-          j.choices[0].delta.gena;
-        if (g) events.push(g);
-      } catch (e) {
-        /* ignore */
+  /* ---------- SSE: прозрачный поток + извлечение delta.gena (построчно) ---------- */
+  function dispatchGenaFromDataLine(line) {
+    if (line.indexOf("data: ") !== 0) return;
+    var raw = line.slice(6).trim();
+    if (raw === "[DONE]") return;
+    try {
+      var j = JSON.parse(raw);
+      var g =
+        j &&
+        j.choices &&
+        j.choices[0] &&
+        j.choices[0].delta &&
+        j.choices[0].delta.gena;
+      if (g) {
+        window.dispatchEvent(new CustomEvent("gena-presentation", { detail: g }));
       }
+    } catch (e) {
+      /* ignore */
     }
-    return events;
   }
 
   function createGenaPassthroughTransform(onFirstChunk) {
     var dec = new TextDecoder();
-    var buf = "";
+    var lineBuf = "";
     var first = true;
     function pumpDone() {
       if (first) {
@@ -177,51 +251,56 @@
         if (typeof onFirstChunk === "function") onFirstChunk();
       }
     }
+    function flushLines(finalBlock) {
+      var parts = finalBlock.split(/\r?\n/);
+      for (var i = 0; i < parts.length; i++) {
+        dispatchGenaFromDataLine(parts[i]);
+      }
+    }
     return new TransformStream({
       transform: function (chunk, controller) {
         if (chunk && chunk.byteLength) pumpDone();
         controller.enqueue(chunk);
-        buf += dec.decode(chunk, { stream: true });
-        var parts = buf.split("\n\n");
-        buf = parts.pop() || "";
-        for (var p = 0; p < parts.length; p++) {
-          var block = parts[p];
-          if (!block.trim()) continue;
-          var evs = parseSseBlocks(block + "\n");
-          for (var e = 0; e < evs.length; e++) {
-            window.dispatchEvent(
-              new CustomEvent("gena-presentation", { detail: evs[e] })
-            );
-          }
+        lineBuf += dec.decode(chunk, { stream: true });
+        var parts = lineBuf.split(/\r?\n/);
+        lineBuf = parts.pop() || "";
+        for (var i = 0; i < parts.length; i++) {
+          dispatchGenaFromDataLine(parts[i]);
         }
       },
       flush: function () {
-        buf += dec.decode();
+        lineBuf += dec.decode();
         pumpDone();
-        if (buf.trim()) {
-          var evs = parseSseBlocks(buf);
-          for (var e = 0; e < evs.length; e++) {
-            window.dispatchEvent(
-              new CustomEvent("gena-presentation", { detail: evs[e] })
-            );
-          }
-        }
-        buf = "";
+        flushLines(lineBuf);
+        lineBuf = "";
       },
     });
   }
 
+  function getFetchUrl(input) {
+    if (typeof input === "string") return input;
+    if (input && typeof input.url === "string") return input.url;
+    return "";
+  }
+
   function shouldInterceptChatCompletions(input, init) {
-    var url = typeof input === "string" ? input : input && input.url;
+    var url = getFetchUrl(input);
     if (!url || url.indexOf("chat/completions") === -1) return false;
-    init = init || {};
-    if (!init.body || typeof init.body !== "string") return false;
-    try {
-      var b = JSON.parse(init.body);
-      return !!(b && b.stream === true);
-    } catch (err) {
-      return false;
+    var method = "GET";
+    if (init && init.method) method = String(init.method).toUpperCase();
+    else if (typeof Request !== "undefined" && input instanceof Request) {
+      method = (input.method || "GET").toUpperCase();
     }
+    if (method !== "POST") return false;
+    if (init && init.body && typeof init.body === "string") {
+      try {
+        var b = JSON.parse(init.body);
+        if (b && b.stream === false) return false;
+      } catch (err) {
+        return true;
+      }
+    }
+    return true;
   }
 
   var origFetch = window.fetch;
@@ -503,6 +582,14 @@
     enhancePptxEmbeds(document.body);
   }
 
-  if (document.body) bootEmbeds();
-  else document.addEventListener("DOMContentLoaded", bootEmbeds);
+  hookUserPromptCapture();
+  if (document.body) {
+    bootEmbeds();
+    bootStylePromptObserver();
+  } else {
+    document.addEventListener("DOMContentLoaded", function () {
+      bootEmbeds();
+      bootStylePromptObserver();
+    });
+  }
 })();
