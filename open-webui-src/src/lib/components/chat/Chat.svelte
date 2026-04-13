@@ -64,6 +64,7 @@
 		displayFileHandler
 	} from '$lib/utils';
 	import { AudioQueue } from '$lib/utils/audio';
+	import { webuiLog, webuiLogFull, summarizeChatPayload } from '$lib/utils/webuiClientLog';
 
 	import {
 		archiveChatById,
@@ -420,16 +421,21 @@
 	};
 
 	const chatEventHandler = async (event, cb) => {
-		console.log(event);
-
 		if (event.chat_id === $chatId) {
 			await tick();
+			const type = event?.data?.type ?? null;
+			const data = event?.data?.data ?? null;
+			webuiLog('socket:event', {
+				chat_id: event.chat_id,
+				message_id: event.message_id,
+				type,
+				payload: summarizeChatPayload(data)
+			});
+			webuiLogFull('socket:event:raw', event);
+
 			let message = history.messages[event.message_id];
 
 			if (message) {
-				const type = event?.data?.type ?? null;
-				const data = event?.data?.data ?? null;
-
 				if (type === 'status') {
 					if (message?.statusHistory) {
 						message.statusHistory.push(data);
@@ -581,7 +587,7 @@
 				} else if (type.startsWith('terminal:')) {
 					terminalEventHandler(type, data);
 				} else {
-					console.log('Unknown message type', data);
+					webuiLog('socket:unknown_type', { type, payload: summarizeChatPayload(data) });
 				}
 
 				history.messages[event.message_id] = message;
@@ -1624,6 +1630,17 @@
 	const chatCompletionEventHandler = async (data, message, chatId) => {
 		const { id, done, choices, content, output, sources, selected_model_id, error, usage } = data;
 
+		webuiLog('stream:chat:completion', {
+			messageId: message.id,
+			done: !!done,
+			hasChoices: !!choices,
+			hasError: !!error,
+			hasContentField: content != null && content !== '',
+			usage,
+			payload: summarizeChatPayload(data)
+		});
+		webuiLogFull('stream:chat:completion:raw', data);
+
 		// Store raw OR-aligned output items from backend
 		if (output) {
 			message.output = output;
@@ -2177,6 +2194,7 @@
 				}
 			})
 		);
+		webuiLog('ui:chat:start', { responseMessageId, model: model?.id });
 		await tick();
 
 		let userLocation;
@@ -2393,6 +2411,7 @@
 			if (res.error) {
 				await handleOpenAIError(res.error, responseMessage);
 			} else {
+				webuiLog('api:chat/completions:task', summarizeChatPayload(res));
 				if (taskIds) {
 					taskIds.push(res.task_id);
 				} else {
