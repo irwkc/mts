@@ -1384,16 +1384,20 @@
 
 		if ($chatId == _chatId) {
 			if (!$temporaryChatEnabled) {
-				chat = await updateChatById(localStorage.token, _chatId, {
-					models: selectedModels,
-					messages: messages,
-					history: history,
-					params: params,
-					files: chatFiles
-				});
+				try {
+					chat = await updateChatById(localStorage.token, _chatId, {
+						models: selectedModels,
+						messages: messages,
+						history: history,
+						params: params,
+						files: chatFiles
+					});
 
-				currentChatPage.set(1);
-				await chats.set(await getChatList(localStorage.token, $currentChatPage));
+					currentChatPage.set(1);
+					await chats.set(await getChatList(localStorage.token, $currentChatPage));
+				} catch (err) {
+					console.error('chatCompletedHandler: save chat failed', err);
+				}
 			}
 		}
 
@@ -1439,16 +1443,20 @@
 
 		if ($chatId == _chatId) {
 			if (!$temporaryChatEnabled) {
-				chat = await updateChatById(localStorage.token, _chatId, {
-					models: selectedModels,
-					messages: messages,
-					history: history,
-					params: params,
-					files: chatFiles
-				});
+				try {
+					chat = await updateChatById(localStorage.token, _chatId, {
+						models: selectedModels,
+						messages: messages,
+						history: history,
+						params: params,
+						files: chatFiles
+					});
 
-				currentChatPage.set(1);
-				await chats.set(await getChatList(localStorage.token, $currentChatPage));
+					currentChatPage.set(1);
+					await chats.set(await getChatList(localStorage.token, $currentChatPage));
+				} catch (err) {
+					console.error('chatActionHandler: save chat failed', err);
+				}
 			}
 		}
 	};
@@ -2631,13 +2639,17 @@
 	const saveChatHandler = async (_chatId, history) => {
 		if ($chatId == _chatId) {
 			if (!$temporaryChatEnabled) {
-				chat = await updateChatById(localStorage.token, _chatId, {
-					models: selectedModels,
-					history: history,
-					messages: createMessagesList(history, history.currentId),
-					params: params,
-					files: chatFiles
-				});
+				try {
+					chat = await updateChatById(localStorage.token, _chatId, {
+						models: selectedModels,
+						history: history,
+						messages: createMessagesList(history, history.currentId),
+						params: params,
+						files: chatFiles
+					});
+				} catch (err) {
+					console.error('saveChatHandler: failed', err);
+				}
 			}
 		}
 	};
