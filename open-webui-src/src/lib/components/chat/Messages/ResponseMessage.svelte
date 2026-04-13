@@ -63,6 +63,8 @@
 	import StatusHistory from './ResponseMessage/StatusHistory.svelte';
 	import FullHeightIframe from '$lib/components/common/FullHeightIframe.svelte';
 	import GenaPresentationStylePicker from './GenaPresentationStylePicker.svelte';
+	import { sanitizeGenaAssistantMarkdown } from '$lib/utils/genaDisplay';
+	import { genaImageGeneration } from '$lib/stores/genaImageGeneration';
 
 	interface MessageType {
 		id: string;
@@ -170,6 +172,9 @@
 
 	let model = null;
 	$: model = $models.find((m) => m.id === message.model);
+
+	$: sanitizedAssistantContent = sanitizeGenaAssistantMarkdown(message.content ?? '');
+	$: assistantContentEmpty = !sanitizedAssistantContent.trim();
 
 	$: statusEntries = message?.statusHistory ?? [...(message?.status ? [message?.status] : [])];
 	$: hasVisibleStatus =
@@ -641,8 +646,20 @@
 		<div class="flex-auto w-0 pl-1 relative">
 			<Name>
 				<Tooltip content={model?.name ?? message.model} placement="top-start">
-					<span id="response-message-model-name" class="line-clamp-1 text-black dark:text-white">
-						{model?.name ?? message.model}
+					<span class="inline-flex items-center gap-1.5 min-w-0 flex-wrap">
+						<span id="response-message-model-name" class="line-clamp-1 text-black dark:text-white">
+							{model?.name ?? message.model}
+						</span>
+						{#if $genaImageGeneration.active && !message.done && !message.error}
+							<Spinner className="size-3.5 shrink-0 text-teal-500 dark:text-teal-400/90" />
+							<span
+								class="text-xs font-medium text-gray-600 dark:text-gray-400 shrink-0"
+								aria-live="polite"
+								>{$genaImageGeneration.label}</span
+							>
+						{:else if !message.done && !message.error}
+							<Spinner className="size-3.5 shrink-0 text-gray-500 dark:text-gray-400" />
+						{/if}
 					</span>
 				</Tooltip>
 
@@ -788,9 +805,9 @@
 							class="w-full flex flex-col relative {edit ? 'hidden' : ''}"
 							id="response-content-container"
 						>
-							{#if message.content === '' && !message.done && !message.error && !hasVisibleStatus}
+							{#if assistantContentEmpty && !message.done && !message.error && !hasVisibleStatus}
 								<Skeleton />
-							{:else if message.content && message.error !== true}
+							{:else if !assistantContentEmpty && message.error !== true}
 								<!-- always show message contents even if there's an error -->
 								<!-- unless message.error === true which is legacy error handling, where the error message is stored in message.content -->
 								<ContentRenderer
@@ -798,7 +815,7 @@
 									messageId={message.id}
 									{history}
 									{selectedModels}
-									content={message.content}
+									content={sanitizedAssistantContent}
 									sources={message.sources}
 									floatingButtons={message?.done &&
 										!readOnly &&

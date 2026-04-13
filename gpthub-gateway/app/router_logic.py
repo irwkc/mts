@@ -43,17 +43,6 @@ IMAGE_GEN_RE = re.compile(
     re.I,
 )
 PRESENTATION_RE = re.compile(r"(презентаци|слайд)", re.I)
-# Демо MP3: простой синтез в шлюзе (не нейро-музыка уровня студии)
-MUSIC_GEN_RE = re.compile(
-    r"(?:"
-    r"(?:сгенерируй|создай|напиши|сделай)\s+(?:музык\w*|мелоди\w*|джингл\w*|трек\w*|mp3\b|аудио[\s-]*демо)|"
-    r"(?:мелоди\w*|музык\w*)\s+под\s+песн|"
-    r"(?:generate|make|compose)\s+(?:music|melody|jingle|track)\b|"
-    r"музыкальн\w+\s+(?:демо|фрагмент|отрывок)|"
-    r"демо[\s-]*музык\w*"
-    r")",
-    re.I,
-)
 SEARCH_RE = re.compile(
     r"(найди\s+в\s+интернет|поиск\s+в\s+сети|web\s+search|google\s+this|"
     r"search\s+the\s+web)",

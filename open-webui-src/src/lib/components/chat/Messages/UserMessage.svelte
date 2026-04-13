@@ -6,6 +6,7 @@
 	import { models, settings } from '$lib/stores';
 	import { user as _user } from '$lib/stores';
 	import { copyToClipboard as _copyToClipboard, formatDate } from '$lib/utils';
+	import { stripGenaStylePrefixForDisplay } from '$lib/utils/genaDisplay';
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 
 	import Name from './Name.svelte';
@@ -53,6 +54,7 @@
 	let editScrollContainer: HTMLDivElement;
 
 	let message = structuredClone(history.messages[messageId]);
+	$: displayUserContent = stripGenaStylePrefixForDisplay(message.content ?? '');
 	$: if (history.messages) {
 		const source = history.messages[messageId];
 		if (source) {
@@ -364,7 +366,7 @@
 						</div>
 					</div>
 				</div>
-			{:else if message.content !== ''}
+			{:else if displayUserContent !== ''}
 				<div class="w-full">
 					<div class="flex {($settings?.chatBubble ?? true) ? 'justify-end pb-1' : 'w-full'}">
 						<div
@@ -374,10 +376,10 @@
 									}`
 								: ' w-full'}"
 						>
-							{#if message.content}
+							{#if displayUserContent}
 								<Markdown
 									id={`${chatId}-${message.id}`}
-									content={message.content}
+									content={displayUserContent}
 									{editCodeBlock}
 									{topPadding}
 								/>

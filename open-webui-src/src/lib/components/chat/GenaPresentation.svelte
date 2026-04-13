@@ -1,60 +1,11 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
-	import { genaPresentation, genaThinking, genaThinkingProgress } from '$lib/stores/genaPresentation';
-
-	const MARK = 'data-gena-pptx-embed';
+	import { genaPresentation } from '$lib/stores/genaPresentation';
 
 	let dockMinimized = false;
 
 	$: p = $genaPresentation;
-	$: progressPct = Math.round($genaThinkingProgress);
 
-	function previewUrlFromAnchor(a: HTMLAnchorElement): string | null {
-		const href = a.getAttribute('href');
-		if (!href) return null;
-		try {
-			const u = new URL(href, window.location.href);
-			if (!/\.pptx$/i.test(u.pathname)) return null;
-			if (!/\/static\/presentations\/[^/]+\.pptx$/i.test(u.pathname)) return null;
-			const rel = u.pathname.replace(/^\//, '');
-			return `${u.origin}/preview/pptx?path=${encodeURIComponent(rel)}`;
-		} catch {
-			return null;
-		}
-	}
-
-	function enhancePptxEmbeds(root: ParentNode) {
-		const links = root.querySelectorAll('a[href*=".pptx"]');
-		for (const node of links) {
-			const a = node as HTMLAnchorElement;
-			if (a.getAttribute(MARK)) continue;
-			const pv = previewUrlFromAnchor(a);
-			if (!pv) continue;
-			a.setAttribute(MARK, '1');
-			const wrap = document.createElement('div');
-			wrap.className = 'gena-pptx-embed-wrap';
-			const iframe = document.createElement('iframe');
-			iframe.className = 'gena-pptx-embed-iframe';
-			iframe.src = pv;
-			iframe.title = 'Предпросмотр';
-			iframe.loading = 'lazy';
-			iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
-			wrap.appendChild(iframe);
-			a.insertAdjacentElement('afterend', wrap);
-		}
-	}
-
-	let mo: MutationObserver | undefined;
-
-	onMount(() => {
-		enhancePptxEmbeds(document.body);
-		mo = new MutationObserver(() => enhancePptxEmbeds(document.body));
-		mo.observe(document.body, { childList: true, subtree: true });
-	});
-
-	onDestroy(() => mo?.disconnect());
-
-	function phaseClass(id: string, st: string) {
+	function phaseClass(st: string) {
 		let c = 'gena-phase';
 		if (st === 'on') c += ' gena-on';
 		if (st === 'done') c += ' gena-done';
@@ -62,31 +13,10 @@
 	}
 </script>
 
-<!-- «gena думает…» + полоса прогресса -->
-{#if $genaThinking}
-	<div class="gena-thinking gena-thinking-visible" aria-live="polite">
-		<div class="gena-thinking-card">
-			<div class="gena-thinking-row">
-				<span class="gena-thinking-spinner" aria-hidden="true"></span>
-				<div class="gena-thinking-text">
-					<span class="gena-thinking-title">gena думает…</span>
-					<span class="gena-thinking-sub">ожидайте ответ — идёт обработка запроса</span>
-				</div>
-				<span class="gena-thinking-pct">{progressPct}%</span>
-			</div>
-			<div class="gena-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progressPct}>
-				<div class="gena-progress-fill" style="width: {$genaThinkingProgress}%"></div>
-				<div class="gena-progress-shimmer"></div>
-			</div>
-		</div>
-	</div>
-{/if}
-
-<!-- Док презентации -->
 {#if p.visible}
 	<div class="gena-dock" class:gena-dock-hidden={dockMinimized}>
 		<div class="gena-dock-head">
-			<strong>gena · презентация</strong>
+			<strong>Презентация</strong>
 			<div class="gena-dock-actions">
 				<button type="button" title="Свернуть" on:click={() => (dockMinimized = !dockMinimized)}
 					>−</button
@@ -97,16 +27,16 @@
 			</div>
 		</div>
 		<div class="gena-dock-body">
-			<div class={phaseClass('research', p.phases.research)}>
+			<div class={phaseClass(p.phases.research)}>
 				<span class="dot"></span><span>Веб-поиск и контекст</span>
 			</div>
-			<div class={phaseClass('llm', p.phases.llm)}>
+			<div class={phaseClass(p.phases.llm)}>
 				<span class="dot"></span><span>Структура слайдов (LLM)</span>
 			</div>
-			<div class={phaseClass('images', p.phases.images)}>
+			<div class={phaseClass(p.phases.images)}>
 				<span class="dot"></span><span>Картинки по слайдам</span>
 			</div>
-			<div class={phaseClass('build', p.phases.build)}>
+			<div class={phaseClass(p.phases.build)}>
 				<span class="dot"></span><span>Сборка PPTX</span>
 			</div>
 
@@ -139,131 +69,23 @@
 {/if}
 
 <style>
-	.gena-thinking {
-		position: fixed;
-		bottom: 100px;
-		left: 50%;
-		transform: translateX(-50%) translateY(20px);
-		z-index: 999991;
-		opacity: 0;
-		pointer-events: none;
-		transition:
-			opacity 0.2s ease,
-			transform 0.2s ease;
-		min-width: min(420px, calc(100vw - 32px));
-	}
-	.gena-thinking-visible {
-		opacity: 1;
-		transform: translateX(-50%) translateY(0);
-		pointer-events: auto;
-	}
-	.gena-thinking-card {
-		padding: 14px 16px 12px;
-		border-radius: 14px;
-		background: linear-gradient(145deg, oklch(0.22 0.06 285) 0%, oklch(0.18 0.055 270) 50%, oklch(0.16 0.05 250) 100%);
-		border: 1px solid oklch(0.45 0.12 195 / 0.45);
-		box-shadow:
-			0 12px 40px oklch(0.05 0.05 280 / 0.55),
-			0 0 0 1px oklch(0.55 0.15 295 / 0.15) inset;
-		color: oklch(0.92 0.02 230);
-		font-size: 13px;
-		font-family: ui-sans-serif, system-ui, sans-serif;
-	}
-	.gena-thinking-row {
-		display: flex;
-		align-items: flex-start;
-		gap: 12px;
-		margin-bottom: 10px;
-	}
-	.gena-thinking-spinner {
-		width: 20px;
-		height: 20px;
-		margin-top: 2px;
-		border: 2px solid oklch(0.55 0.1 195 / 0.35);
-		border-top-color: oklch(0.75 0.14 195);
-		border-radius: 50%;
-		animation: gena-spin 0.75s linear infinite;
-		flex-shrink: 0;
-	}
-	@keyframes gena-spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
-	.gena-thinking-text {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		flex: 1;
-		min-width: 0;
-	}
-	.gena-thinking-title {
-		font-weight: 600;
-		color: oklch(0.95 0.03 200);
-	}
-	.gena-thinking-sub {
-		font-size: 11px;
-		color: oklch(0.72 0.04 235);
-		line-height: 1.35;
-	}
-	.gena-thinking-pct {
-		font-variant-numeric: tabular-nums;
-		font-size: 12px;
-		font-weight: 600;
-		color: oklch(0.78 0.12 195);
-		flex-shrink: 0;
-	}
-	.gena-progress-track {
-		position: relative;
-		height: 6px;
-		border-radius: 999px;
-		background: oklch(0.25 0.04 270 / 0.9);
-		overflow: hidden;
-		border: 1px solid oklch(0.4 0.08 295 / 0.35);
-	}
-	.gena-progress-fill {
-		height: 100%;
-		border-radius: 999px;
-		background: linear-gradient(90deg, oklch(0.55 0.14 195), oklch(0.48 0.18 295));
-		transition: width 0.25s ease-out;
-		box-shadow: 0 0 12px oklch(0.55 0.14 195 / 0.45);
-	}
-	.gena-progress-shimmer {
-		position: absolute;
-		inset: 0;
-		background: linear-gradient(
-			90deg,
-			transparent,
-			oklch(0.95 0.05 200 / 0.12),
-			transparent
-		);
-		animation: gena-shimmer 1.4s ease-in-out infinite;
-		pointer-events: none;
-	}
-	@keyframes gena-shimmer {
-		0% {
-			transform: translateX(-100%);
-		}
-		100% {
-			transform: translateX(100%);
-		}
-	}
-
 	.gena-dock {
 		position: fixed;
-		right: 12px;
-		top: 72px;
-		width: min(380px, calc(100vw - 24px));
-		max-height: min(82vh, 900px);
+		right: 0;
+		top: 0;
+		width: min(380px, 42vw);
+		height: 100vh;
+		max-height: 100vh;
 		z-index: 999990;
 		display: flex;
 		flex-direction: column;
 		font-family: ui-sans-serif, system-ui, sans-serif;
 		font-size: 13px;
 		background: linear-gradient(165deg, oklch(0.2 0.055 285) 0%, oklch(0.14 0.05 270) 100%);
-		border: 1px solid oklch(0.45 0.1 195 / 0.4);
-		border-radius: 12px;
-		box-shadow: 0 12px 40px oklch(0.05 0.04 280 / 0.6);
+		border: none;
+		border-left: 1px solid oklch(0.45 0.1 195 / 0.45);
+		border-radius: 0;
+		box-shadow: -8px 0 32px oklch(0.05 0.04 280 / 0.45);
 		overflow: hidden;
 		transition:
 			transform 0.2s ease,
@@ -388,21 +210,5 @@
 		color: oklch(0.75 0.12 25);
 		font-size: 12px;
 		margin-top: 8px;
-	}
-
-	:global(.gena-pptx-embed-wrap) {
-		margin: 0.75rem 0 1rem 0;
-		max-width: 100%;
-		border-radius: 8px;
-		overflow: hidden;
-		border: 1px solid oklch(0.45 0.08 195 / 0.35);
-		background: oklch(0.14 0.04 285);
-	}
-	:global(.gena-pptx-embed-iframe) {
-		display: block;
-		width: 100%;
-		min-height: 420px;
-		height: min(70vh, 640px);
-		border: 0;
 	}
 </style>

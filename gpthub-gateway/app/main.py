@@ -23,18 +23,17 @@ from app.image_utils import image_api_response_to_data_url
 from app.chroma_store import recall_block as chroma_recall_block, save_message as chroma_save_message
 from app.gena_features import (
     public_static_url,
+    prepare_image_generation_prompt,
     should_stream_deep_gena,
     should_stream_image_gena,
-    should_stream_music_gena,
     has_explicit_presentation_style,
     should_stream_presentation,
     stream_presentation_style_prompt,
     stream_deep_research,
     stream_image_markdown,
-    stream_music_demo,
     stream_presentation_pptx,
+    user_wants_image_generation,
 )
-from app.music_demo import build_mp3_from_prompt, melody_notes_from_llm
 from app.memory_context import (
     digest_turn_to_facts,
     extract_explicit_remember,
@@ -46,8 +45,6 @@ from app.presentation_api import pptx_path, router as presentation_api_router, v
 from app.pptx_pdf import ensure_pptx_pdf
 from app.rag_store import RAGStore, extract_embeddable_documents
 from app.router_logic import (
-    IMAGE_GEN_RE,
-    MUSIC_GEN_RE,
     apply_manual_route,
     gena_chat_target,
     inject_router_debug,
@@ -494,56 +491,6 @@ def _inject_system(messages: list[dict[str, Any]], extra: str) -> list[dict[str,
     return ms
 
 
-async def maybe_music_demo_chat(
-    request: Request,
-    messages: list[dict[str, Any]],
-) -> Optional[dict[str, Any]]:
-    """Демо MP3: синус по нотам (+ опционально JSON нот от LLM)."""
-    lu = last_user_message(messages)
-    text = _content_to_text(lu.get("content") if lu else None)
-    if not text or not MUSIC_GEN_RE.search(text):
-        return None
-    if message_has_image(messages) or message_has_audio(messages):
-        return None
-    available = await get_available_model_ids()
-    mid = gena_chat_target()
-    if mid not in available:
-        mid = (
-            settings.default_llm
-            if settings.default_llm in available
-            else next(iter(sorted(available - {settings.auto_model_id})), settings.default_llm)
-        )
-    llm_notes = await melody_notes_from_llm(_client, text, mid)
-    try:
-        mp3 = build_mp3_from_prompt(text, llm_notes)
-    except Exception as e:
-        logger.warning("music demo build failed: %s", e)
-        return None
-    music_dir = settings.data_dir / "static" / "music"
-    music_dir.mkdir(parents=True, exist_ok=True)
-    fname = f"demo_{uuid.uuid4().hex[:12]}.mp3"
-    (music_dir / fname).write_bytes(mp3)
-    url = public_static_url(request, f"static/music/{fname}")
-    content = (
-        "Демо-мелодия под песню (~1–1.5 мин, простой синус по нотам, не студийный трек):\n\n"
-        f"[Скачать MP3]({url})\n\n"
-    )
-    return {
-        "id": "chatcmpl-gpthub-music",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": mid,
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": content},
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-    }
-
-
 async def maybe_image_generation_chat(
     messages: list[dict[str, Any]],
     route_note: str,
@@ -552,26 +499,20 @@ async def maybe_image_generation_chat(
     want = "image_gen" in route_note
     lu = last_user_message(messages)
     text = _content_to_text(lu.get("content") if lu else None)
-    if text and MUSIC_GEN_RE.search(text):
+    if not text:
         return None
-    if not want and not IMAGE_GEN_RE.search(text):
+    if not user_wants_image_generation(text, messages, want):
         return None
-    prompt = text
     if message_has_image(messages) or message_has_audio(messages):
         return None
-    if len(prompt) < 3:
-        return None
-    model_id = settings.image_gen_model
     ids = await get_available_model_ids()
-    if model_id not in ids:
-        for c in ("qwen-image", "sd3.5-large-image", "z-image-turbo"):
-            if c in ids:
-                model_id = c
-                break
     try:
+        model_id, final_prompt = await prepare_image_generation_prompt(
+            _client, text, messages, ids
+        )
         img_body = {
             "model": model_id,
-            "prompt": prompt[:4000],
+            "prompt": final_prompt,
             "n": 1,
             "size": "1024x1024",
             "response_format": "b64_json",  # сразу base64, не URL
@@ -583,7 +524,7 @@ async def maybe_image_generation_chat(
     url = await image_api_response_to_data_url(img_resp)
     if not url:
         return None
-    content = f"Сгенерировано изображение:\n\n![image]({url})"
+    content = f"![Изображение]({url})"
     return {
         "id": "chatcmpl-gpthub-img",
         "object": "chat.completion",
@@ -660,27 +601,17 @@ async def chat_completions(request: Request) -> Response:
                 media_type="text/event-stream",
                 headers=_sse_headers(request),
             )
-        if should_stream_music_gena(
-            last_text, stream, message_has_image(messages), message_has_audio(messages)
-        ):
-            logger.info("gena intercept=music stream=1")
-            return StreamingResponse(
-                stream_music_demo(request, _client, last_text, available),
-                media_type="text/event-stream",
-                headers=_sse_headers(request),
-            )
-        if should_stream_image_gena(last_text, stream, message_has_image(messages)):
+        if should_stream_image_gena(last_text, stream, message_has_image(messages), messages):
             logger.info("gena intercept=image stream=1")
             return StreamingResponse(
-                stream_image_markdown(request, _client, last_text, available),
+                stream_image_markdown(
+                    request, _client, last_text, available, messages
+                ),
                 media_type="text/event-stream",
                 headers=_sse_headers(request),
             )
 
     if not stream:
-        music_early = await maybe_music_demo_chat(request, messages)
-        if music_early:
-            return JSONResponse(music_early)
         img_early = await maybe_image_generation_chat(messages, "")
         if img_early:
             return JSONResponse(img_early)

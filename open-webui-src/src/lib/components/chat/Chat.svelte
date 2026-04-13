@@ -108,7 +108,11 @@
 	import Image from '../common/Image.svelte';
 	import { getBanners } from '$lib/apis/configs';
 	import GenaPresentation from '$lib/components/chat/GenaPresentation.svelte';
-	import { applyGenaDelta, setGenaThinking } from '$lib/stores/genaPresentation';
+	import { applyGenaDelta, genaPresentation } from '$lib/stores/genaPresentation';
+	import {
+		applyGenaImageDelta,
+		clearGenaImageGeneration
+	} from '$lib/stores/genaImageGeneration';
 
 	export let chatIdProp = '';
 
@@ -1588,8 +1592,6 @@
 	};
 
 	const chatCompletionEventHandler = async (data, message, chatId) => {
-		setGenaThinking(false);
-
 		const { id, done, choices, content, output, sources, selected_model_id, error, usage } = data;
 
 		// Store raw OR-aligned output items from backend
@@ -1609,6 +1611,7 @@
 			const gena = choices[0]?.delta?.gena;
 			if (gena != null) {
 				applyGenaDelta(gena);
+				applyGenaImageDelta(gena);
 				if (
 					typeof gena === 'object' &&
 					gena.type === 'presentation_style_prompt' &&
@@ -1708,6 +1711,7 @@
 
 		if (done) {
 			message.done = true;
+			clearGenaImageGeneration();
 
 			if ($settings.responseAutoCopy) {
 				copyToClipboard(message.content);
@@ -2116,7 +2120,6 @@
 		);
 
 		scrollToBottom();
-		setGenaThinking(true);
 		eventTarget.dispatchEvent(
 			new CustomEvent('chat:start', {
 				detail: {
@@ -2555,11 +2558,13 @@
 					if (error || done) {
 						generating = false;
 						generationController = null;
+						clearGenaImageGeneration();
 						break;
 					}
 
 					if (gena != null) {
 						applyGenaDelta(gena);
+						applyGenaImageDelta(gena);
 					}
 
 					if (mergedResponse.content == '' && value == '\n') {
@@ -2763,7 +2768,13 @@
 			{/if}
 
 			<PaneGroup direction="horizontal" class="w-full h-full">
-				<Pane defaultSize={50} minSize={30} class="h-full flex relative max-w-full flex-col">
+				<Pane
+					defaultSize={50}
+					minSize={30}
+					class="h-full flex relative max-w-full flex-col transition-[padding] duration-200 ease-out {$genaPresentation.visible
+						? 'pr-[min(380px,42vw)] max-md:pr-0'
+						: ''}"
+				>
 					<FilesOverlay show={dragged} />
 					<Navbar
 						bind:this={navbarElement}

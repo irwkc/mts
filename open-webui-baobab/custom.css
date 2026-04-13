@@ -5,13 +5,39 @@
  */
 html.dark body {
 	background: linear-gradient(
-		165deg,
-		oklch(0.11 0.035 285) 0%,
-		oklch(0.13 0.03 250) 45%,
-		oklch(0.12 0.028 220) 100%
+		145deg,
+		oklch(0.1 0.04 285) 0%,
+		oklch(0.12 0.055 305) 38%,
+		oklch(0.11 0.045 195) 72%,
+		oklch(0.1 0.038 260) 100%
 	);
 	background-attachment: fixed;
 	min-height: 100vh;
+}
+
+/* Второй слой акцентов: бирюза + фиолет (не один «синий» плоский тон) */
+html.dark body::before {
+	content: "";
+	position: fixed;
+	inset: 0;
+	pointer-events: none;
+	z-index: 0;
+	background: radial-gradient(
+			ellipse 80% 55% at 85% 15%,
+			oklch(0.22 0.12 295 / 0.35) 0%,
+			transparent 55%
+		),
+		radial-gradient(
+			ellipse 70% 50% at 10% 80%,
+			oklch(0.2 0.1 195 / 0.28) 0%,
+			transparent 50%
+		);
+}
+
+/* Контент чата поверх градиента */
+html.dark #chat-container {
+	position: relative;
+	z-index: 1;
 }
 
 html:not(.dark) body {

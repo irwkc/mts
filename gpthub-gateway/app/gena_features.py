@@ -10,7 +10,6 @@ import re
 import uuid
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
-from urllib.parse import quote
 
 import httpx
 from fastapi import Request
@@ -25,7 +24,12 @@ from app.presentation_pptx import (
 )
 from app.mws_client import MWSClient
 from app.pptx_pdf import ensure_pptx_pdf
-from app.router_logic import IMAGE_GEN_RE, MUSIC_GEN_RE, PRESENTATION_RE, gena_chat_target
+from app.router_logic import (
+    IMAGE_GEN_RE,
+    PRESENTATION_RE,
+    _content_to_text,
+    gena_chat_target,
+)
 from app.web_tools import (
     deep_research_ddg,
     extract_urls,
@@ -35,6 +39,174 @@ from app.web_tools import (
 )
 
 logger = logging.getLogger("gpthub.gena")
+
+_MD_IMG_URL = re.compile(r"!\[[^\]]*\]\((https?://[^)\s]+)\)")
+
+_IMAGE_EDIT_FOLLOWUP = re.compile(
+    r"(?:измени|изменить|добавь|убери|перерисуй|ещ[ёе]\s|другой|другая|другие|цвет|фон|размер|"
+    r"сделай|кольцо|картин|изображен|фото|рисунок|вариант|верси|похож|исправ|замени|"
+    r"change|edit|remove|add |another|different|more |less |brighter|darker)",
+    re.I,
+)
+
+
+def _collect_assistant_image_urls(messages: list[dict[str, Any]], max_n: int = 4) -> list[str]:
+    """URL из markdown ![...](url) в последних ответах ассистента — для правок картинки в диалоге."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for m in reversed(messages or []):
+        if (m.get("role") or "") != "assistant":
+            continue
+        raw = _content_to_text(m.get("content"))
+        for u in _MD_IMG_URL.findall(raw):
+            if u not in seen:
+                seen.add(u)
+                out.append(u)
+            if len(out) >= max_n:
+                return out
+    return out
+
+
+def _last_assistant_has_markdown_image(messages: list[dict[str, Any]]) -> bool:
+    """Есть ли в последнем ответе ассистента встроенная картинка (https или data:image)."""
+    for m in reversed(messages or []):
+        if (m.get("role") or "") != "assistant":
+            continue
+        raw = _content_to_text(m.get("content"))
+        return bool(re.search(r"!\[[^\]]*\]\([^)]+\)", raw))
+    return False
+
+
+def _image_followup_after_assistant_picture(last_text: str, messages: list[dict[str, Any]]) -> bool:
+    """Запрос без явного «нарисуй», но после сгенерированной картинки — доработка сцены."""
+    if not last_text:
+        return False
+    t = last_text.strip()
+    if len(t) > 1200:
+        return False
+    if re.match(r"^(спасибо|благодарю|thanks|thank you|ok\.?|ок\.?|понятно)\s*$", t, re.I):
+        return False
+    if not _collect_assistant_image_urls(messages, max_n=1) and not _last_assistant_has_markdown_image(
+        messages
+    ):
+        return False
+    if IMAGE_GEN_RE.search(last_text):
+        return False
+    if _IMAGE_EDIT_FOLLOWUP.search(last_text):
+        return True
+    return len(t) <= 400
+
+
+def user_wants_image_generation(
+    last_text: str,
+    messages: list[dict[str, Any]],
+    route_has_image_gen: bool,
+) -> bool:
+    if not last_text or len(last_text.strip()) < 3:
+        return False
+    if route_has_image_gen:
+        return True
+    if IMAGE_GEN_RE.search(last_text):
+        return True
+    return _image_followup_after_assistant_picture(last_text, messages)
+
+
+async def prepare_image_generation_prompt(
+    client: MWSClient,
+    user_text: str,
+    messages: list[dict[str, Any]] | None,
+    available_ids: set[str],
+) -> tuple[str, str]:
+    """Подобрать модель и финальный англ. промпт (с учётом URL предыдущей картинки при правках)."""
+    image_refs = _collect_assistant_image_urls(messages or [], max_n=4)
+    model_id = settings.image_gen_model
+    if model_id not in available_ids:
+        for c in ("qwen-image", "qwen-image-lightning", "sd3.5-large-image", "z-image-turbo"):
+            if c in available_ids:
+                model_id = c
+                break
+    prompt = user_text
+    try:
+        if image_refs:
+            enhance = await client.post_json(
+                "/chat/completions",
+                {
+                    "model": _pick_model(gena_chat_target(), available_ids, settings.default_llm),
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You write ONE English prompt for a text-to-image diffusion model. "
+                                "The user is iterating on a previous image; the URLs describe what was "
+                                "already generated (style and subject). "
+                                "Describe the full new scene after the user's change — objects, colors, "
+                                "lighting, composition, art style. "
+                                "Do not output URLs or markdown. Output ONLY the prompt."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                "Reference image URL(s) from the previous assistant message:\n"
+                                + "\n".join(f"- {u}" for u in image_refs)
+                                + f"\n\nUser instruction (any language):\n{user_text[:3000]}"
+                            ),
+                        },
+                    ],
+                    "max_tokens": 700,
+                    "temperature": 0.35,
+                },
+            )
+        elif _last_assistant_has_markdown_image(messages or []):
+            enhance = await client.post_json(
+                "/chat/completions",
+                {
+                    "model": _pick_model(gena_chat_target(), available_ids, settings.default_llm),
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You write ONE English prompt for a text-to-image diffusion model. "
+                                "The previous assistant message in this chat already contained a generated "
+                                "image (markdown image; may be a hosted URL or inline data). "
+                                "The user now asks for a revision. Describe the complete new image — "
+                                "scene, style, lighting, objects — matching their instruction. "
+                                "Do not mention chat or URLs. Output ONLY the prompt."
+                            ),
+                        },
+                        {"role": "user", "content": user_text[:3000]},
+                    ],
+                    "max_tokens": 700,
+                    "temperature": 0.35,
+                },
+            )
+        else:
+            enhance = await client.post_json(
+                "/chat/completions",
+                {
+                    "model": _pick_model(gena_chat_target(), available_ids, settings.default_llm),
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "Output ONLY a concise English image generation prompt, no other text.",
+                        },
+                        {"role": "user", "content": user_text[:2000]},
+                    ],
+                    "max_tokens": 500,
+                    "temperature": 0.35,
+                },
+            )
+        ep = (
+            (enhance.get("choices") or [{}])[0]
+            .get("message", {})
+            .get("content", "")
+            .strip()
+        )
+        if ep:
+            prompt = ep
+    except Exception:
+        logger.exception("image prompt enhance")
+    return model_id, prompt[:4000]
 
 
 def friendly_stream_error(exc: BaseException) -> str:
@@ -290,8 +462,9 @@ async def stream_presentation_pptx(
     )
 
     slide_cap = _presentation_slide_cap(clean_prompt)
+    # Только gena-события в UI (док); без текста «[gena · презентация]» в чате
     yield sse_delta(
-        "**[gena · презентация]**\n\n",
+        "",
         gena={
             "type": "presentation_start",
             "slide_cap": slide_cap,
@@ -366,14 +539,10 @@ async def stream_presentation_pptx(
         if len(slides_data) < 1:
             raise ValueError("no slides in JSON")
 
-        plan_lines: list[str] = []
-        if deck_title:
-            plan_lines.append(f"**{deck_title}**")
-        for i, s in enumerate(slides_data, 1):
-            plan_lines.append(f"{i}. {s.get('title', 'Слайд')}")
         summary = _slides_gena_summary(slides_data)
+        # План слайдов только в доке (deck_structure), не дублировать списком в чате
         yield sse_delta(
-            "\n".join(plan_lines) + "\n\n",
+            "",
             gena={
                 "type": "deck_structure",
                 "deck_title": (deck_title or "")[:500],
@@ -426,16 +595,6 @@ async def stream_presentation_pptx(
             stem=stem,
         )
         url = public_static_url(request, f"static/presentations/{fname}")
-        editor = public_app_url(request, f"presentation/editor/?stem={stem}")
-        preview_page = public_app_url(
-            request, f"preview/pptx?path={quote(f'static/presentations/{fname}', safe='')}"
-        )
-        # PPTX — сразу после сборки (конвертация PDF может долго блокировать стрим).
-        yield sse_delta(
-            "\n\n**Скачивание**\n\n"
-            f"- [PowerPoint (.pptx)]({url})\n\n"
-            f"`{url}`\n\n",
-        )
 
         pdf_path = static_dir / f"{stem}.pdf"
         pdf_ok = await ensure_pptx_pdf(fpath, pdf_path)
@@ -445,16 +604,15 @@ async def stream_presentation_pptx(
             else public_app_url(request, f"presentation/pdf/{stem}")
         )
 
+        # В чат — только две понятные ссылки на скачивание (без предпросмотра, редактора и raw URL).
         yield sse_delta(
-            f"- [PDF]({pdf_href})\n\n"
-            f"[Редактор]({editor}) · [Предпросмотр в браузере]({preview_page})\n\n"
-            f"`{pdf_href}`\n\n",
+            "\n\n"
+            f"- [Скачать PDF]({pdf_href})\n"
+            f"- [Скачать PPTX]({url})\n\n",
             gena={
                 "type": "presentation_complete",
                 "stem": stem,
                 "download_url": url,
-                "editor_url": editor,
-                "preview_page_url": preview_page,
                 "pdf_url": pdf_href,
                 "pptx_rel": f"static/presentations/{fname}",
                 "slide_count": len(slides_data),
@@ -470,94 +628,27 @@ async def stream_presentation_pptx(
     yield "data: [DONE]\n\n"
 
 
-async def stream_music_demo(
-    request: Request,
-    client: MWSClient,
-    prompt: str,
-    available_ids: set[str],
-) -> AsyncGenerator[str, None]:
-    """SSE: статусы + ссылка на демо MP3 (как у картинки, но для музыки)."""
-    from app.music_demo import build_mp3_from_prompt, melody_notes_from_llm
-
-    yield sse_delta("**[gena · музыка]** — демо-мелодия (~1–1.5 мин), синус по нотам.\n\n")
-    yield sse_delta("*(Демо-мелодия: подбираю ноты…)*\n\n")
-    mid = gena_chat_target()
-    if mid not in available_ids:
-        if settings.default_llm in available_ids:
-            mid = settings.default_llm
-        else:
-            mid = next(iter(sorted(available_ids - {settings.auto_model_id})), settings.default_llm)
-    try:
-        llm_notes = await melody_notes_from_llm(client, prompt, mid)
-        yield sse_delta("*(Демо-мелодия: синтез MP3…)*\n\n")
-        mp3 = build_mp3_from_prompt(prompt, llm_notes)
-    except Exception as e:
-        logger.exception("music demo stream")
-        yield sse_delta(f"**Не удалось сгенерировать MP3.** {friendly_stream_error(e)}\n\n")
-        yield "data: [DONE]\n\n"
-        return
-
-    static_dir = settings.data_dir / "static" / "music"
-    static_dir.mkdir(parents=True, exist_ok=True)
-    fname = f"demo_{uuid.uuid4().hex[:12]}.mp3"
-    (static_dir / fname).write_bytes(mp3)
-    url = public_static_url(request, f"static/music/{fname}")
-    yield sse_delta(
-        "Демо-мелодия под песню (~1–1.5 мин, простой синус по нотам, не студийный трек):\n\n"
-        f"[Скачать MP3]({url})\n\n"
-    )
-    yield "data: [DONE]\n\n"
-
-
 async def stream_image_markdown(
     request: Request,
     client: MWSClient,
     prompt: str,
     available_ids: set[str],
+    messages: list[dict[str, Any]] | None = None,
 ) -> AsyncGenerator[str, None]:
-    yield sse_delta("**[gena · изображение]** — нейро-генерация по запросу.\n\n")
-    yield sse_delta("*(Генерация изображения…)*\n\n")
-    model_id = settings.image_gen_model
-    if model_id not in available_ids:
-        for c in ("qwen-image", "qwen-image-lightning", "sd3.5-large-image", "z-image-turbo"):
-            if c in available_ids:
-                model_id = c
-                break
+    """Только картинка в markdown; статус — delta.gena (спиннер + подпись в UI)."""
+    yield sse_delta("", gena={"type": "image_generation_start"})
     try:
-        enhance = await client.post_json(
-            "/chat/completions",
-            {
-                "model": _pick_model(gena_chat_target(), available_ids, settings.default_llm),
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "Output ONLY a concise English image generation prompt, no other text.",
-                    },
-                    {"role": "user", "content": prompt[:2000]},
-                ],
-                "max_tokens": 500,
-            },
+        model_id, final_prompt = await prepare_image_generation_prompt(
+            client, prompt, messages, available_ids
         )
-        ep = (
-            (enhance.get("choices") or [{}])[0]
-            .get("message", {})
-            .get("content", "")
-            .strip()
-        )
-        if ep:
-            prompt = ep
-    except Exception:
-        pass
-
-    try:
         img_resp = await client.post_json(
             "/images/generations",
             {
                 "model": model_id,
-                "prompt": prompt[:4000],
+                "prompt": final_prompt,
                 "n": 1,
                 "size": "1024x1024",
-                "response_format": "b64_json",  # сразу base64 → сохраняем в static, не в SSE
+                "response_format": "b64_json",
             },
         )
         href = await image_api_response_to_sse_href(img_resp, settings.data_dir)
@@ -574,6 +665,7 @@ async def stream_image_markdown(
     except Exception as e:
         logger.exception("stream_image")
         yield sse_delta(f"**Ошибка генерации изображения.** {friendly_stream_error(e)}\n\n")
+    yield sse_delta("", gena={"type": "image_generation_done"})
     yield "data: [DONE]\n\n"
 
 
@@ -648,23 +740,12 @@ def should_stream_deep_gena(last_text: str, stream: bool) -> bool:
     return bool(stream and last_text and should_run_deep_research(last_text))
 
 
-def should_stream_music_gena(
-    last_text: str, stream: bool, has_image: bool, has_audio: bool
+def should_stream_image_gena(
+    last_text: str,
+    stream: bool,
+    has_image: bool,
+    messages: list[dict[str, Any]] | None,
 ) -> bool:
-    return bool(
-        stream
-        and last_text
-        and not has_image
-        and not has_audio
-        and MUSIC_GEN_RE.search(last_text)
-    )
-
-
-def should_stream_image_gena(last_text: str, stream: bool, has_image: bool) -> bool:
-    return bool(
-        stream
-        and last_text
-        and not has_image
-        and IMAGE_GEN_RE.search(last_text)
-        and not MUSIC_GEN_RE.search(last_text)
-    )
+    if not (stream and last_text and not has_image):
+        return False
+    return user_wants_image_generation(last_text, messages or [], False)

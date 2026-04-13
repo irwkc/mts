@@ -7,6 +7,7 @@
 
 	import { settings } from '$lib/stores';
 	import { copyToClipboard } from '$lib/utils';
+	import { shouldHideGenaStyleUserBubble } from '$lib/utils/genaDisplay';
 
 	import MultiResponseMessages from './MultiResponseMessages.svelte';
 	import ResponseMessage from './ResponseMessage.svelte';
@@ -43,8 +44,13 @@
 	export let readOnly = false;
 	export let editCodeBlock = true;
 	export let topPadding = false;
+
+	$: hideGenaStyleUserBubble =
+		history.messages[messageId]?.role === 'user' &&
+		shouldHideGenaStyleUserBubble(history.messages[messageId], history);
 </script>
 
+{#if !hideGenaStyleUserBubble}
 <div
 	role="listitem"
 	class="flex flex-col justify-between px-5 mb-3 w-full {($settings?.widescreenMode ?? null)
@@ -128,3 +134,4 @@
 		{/if}
 	{/if}
 </div>
+{/if}

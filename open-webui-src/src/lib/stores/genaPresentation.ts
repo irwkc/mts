@@ -1,41 +1,5 @@
 import { writable } from 'svelte/store';
 
-/** Показывается после chat:start до первого chat:completion. */
-export const genaThinking = writable(false);
-
-/** Псевдо-прогресс 0–100 пока gena «думает» (нет реального % от API). */
-export const genaThinkingProgress = writable(0);
-
-let progressTimer: ReturnType<typeof setInterval> | null = null;
-
-function startThinkingProgress() {
-	genaThinkingProgress.set(6);
-	if (progressTimer) clearInterval(progressTimer);
-	progressTimer = setInterval(() => {
-		genaThinkingProgress.update((p) => {
-			const headroom = 96 - p;
-			const step = headroom * 0.06 + Math.random() * 4;
-			return Math.min(p + step, 94);
-		});
-	}, 320);
-}
-
-function stopThinkingProgress() {
-	if (progressTimer) {
-		clearInterval(progressTimer);
-		progressTimer = null;
-	}
-	genaThinkingProgress.set(100);
-	setTimeout(() => genaThinkingProgress.set(0), 450);
-}
-
-/** Включить/выключить индикатор «gena думает» и анимацию прогресса. */
-export function setGenaThinking(on: boolean) {
-	genaThinking.set(on);
-	if (on) startThinkingProgress();
-	else stopThinkingProgress();
-}
-
 export type GenaPhaseId = 'research' | 'llm' | 'images' | 'build';
 
 export type GenaPhaseState = 'off' | 'on' | 'done';
@@ -126,7 +90,7 @@ export function applyGenaDelta(raw: unknown) {
 				return {
 					...s,
 					phases: { ...s.phases, build: 'done' },
-					completeNote: 'Готово — ссылки на PPTX/PDF в сообщении чата'
+					completeNote: 'Готово — в чате можно скачать PDF и PPTX'
 				};
 			case 'error':
 				return { ...s, error: String(d.message ?? 'Ошибка') };
