@@ -1823,6 +1823,7 @@
 	"Source": "Источник",
 	"Speech Playback Speed": "Скорость воспроизведения речи",
 	"Speech recognition error: {{error}}": "Ошибка распознавания речи: {{error}}",
+	"Speech synthesis failed. Check Text-to-Speech settings.": "Не удалось синтезировать речь. Проверьте настройки «Текст в речь».",
 	"Speech-to-Text": "Речь в текст",
 	"Speech-to-Text Engine": "Система распознавания речи",
 	"Speech-to-Text Language": "",

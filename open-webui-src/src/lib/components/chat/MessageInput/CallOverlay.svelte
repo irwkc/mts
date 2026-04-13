@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { config, models, settings, showCallOverlay, TTSWorker } from '$lib/stores';
+	import { get } from 'svelte/store';
 	import { onMount, tick, getContext, onDestroy, createEventDispatcher } from 'svelte';
 
 	const dispatch = createEventDispatcher();
@@ -465,8 +466,12 @@
 	const audioCache = new Map();
 	const emojiCache = new Map();
 
+	/** Marker so the player skips this chunk instead of waiting forever (e.g. TTS API 401). */
+	const TTS_FAILED = { __ttsFailed: true as const };
+
 	const fetchAudio = async (content) => {
 		if (!audioCache.has(content)) {
+			let synthesized = false;
 			try {
 				// Set the emoji for the content if needed
 				if ($settings?.showEmojiInCall ?? false) {
@@ -485,10 +490,12 @@
 						.catch((error) => {
 							console.error(error);
 							toast.error(`${error}`);
+							return null;
 						});
 
 					if (url) {
 						audioCache.set(content, new Audio(url));
+						synthesized = true;
 					}
 				} else if ($config.audio.tts.engine !== '') {
 					const res = await synthesizeOpenAISpeech(localStorage.token, getVoiceId(), content).catch(
@@ -498,16 +505,26 @@
 						}
 					);
 
-					if (res) {
+					if (res?.ok) {
 						const blob = await res.blob();
 						const blobUrl = URL.createObjectURL(blob);
 						audioCache.set(content, new Audio(blobUrl));
+						synthesized = true;
+					} else if (res) {
+						console.error('TTS HTTP error', res.status, await res.text?.().catch(() => ''));
 					}
 				} else {
 					audioCache.set(content, true);
+					synthesized = true;
 				}
 			} catch (error) {
 				console.error('Error synthesizing speech:', error);
+			}
+			if (!synthesized && !audioCache.has(content)) {
+				audioCache.set(content, TTS_FAILED);
+				toast.error(
+					get(i18n).t('Speech synthesis failed. Check Text-to-Speech settings.')
+				);
 			}
 		}
 
@@ -523,6 +540,12 @@
 				const content = messages[id].shift(); // Dequeues the content for playing
 
 				if (audioCache.has(content)) {
+					const cached = audioCache.get(content);
+					if (cached && typeof cached === 'object' && '__ttsFailed' in cached) {
+						await new Promise((resolve) => setTimeout(resolve, 50));
+						continue;
+					}
+
 					// If content is available in the cache, play it
 
 					// Set the emoji for the content if available
@@ -540,7 +563,7 @@
 								`Playing audio for content: ${content}`
 							);
 
-							const audio = audioCache.get(content);
+							const audio = cached;
 							await playAudio(audio); // Here ensure that playAudio is indeed correct method to execute
 							console.log(`Played audio for content: ${content}`);
 							await new Promise((resolve) => setTimeout(resolve, 200)); // Wait before retrying to reduce tight loop
@@ -591,26 +614,44 @@
 	const chatEventHandler = async (e) => {
 		const { id, content } = e.detail;
 		// "id" here is message id
-		// if "id" is not the same as "currentMessageId" then do not process
 		// "content" here is a sentence from the assistant,
 		// there will be many sentences for the same "id"
 
-		if (currentMessageId === id) {
-			console.log(`Received chat event for message ID ${id}: ${content}`);
+		if (currentMessageId !== null && currentMessageId !== id) {
+			return;
+		}
 
-			try {
-				if (messages[id] === undefined) {
-					messages[id] = [content];
-				} else {
-					messages[id].push(content);
-				}
-
-				console.log(content);
-
-				fetchAudio(content);
-			} catch (error) {
-				console.error('Failed to fetch or play audio:', error);
+		// Recover if chat:start was missed (race) so TTS is not silently dropped.
+		if (currentMessageId === null) {
+			console.warn('chat event without prior chat:start; starting audio monitor', id);
+			currentMessageId = id;
+			if (audioAbortController) {
+				audioAbortController.abort();
 			}
+			audioAbortController = new AbortController();
+			assistantSpeaking = true;
+			chatStreaming = true;
+			monitorAndPlayAudio(id, audioAbortController.signal);
+		}
+
+		if (currentMessageId !== id) {
+			return;
+		}
+
+		console.log(`Received chat event for message ID ${id}: ${content}`);
+
+		try {
+			if (messages[id] === undefined) {
+				messages[id] = [content];
+			} else {
+				messages[id].push(content);
+			}
+
+			console.log(content);
+
+			fetchAudio(content);
+		} catch (error) {
+			console.error('Failed to fetch or play audio:', error);
 		}
 	};
 

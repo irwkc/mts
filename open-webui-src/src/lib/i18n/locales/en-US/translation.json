@@ -1819,6 +1819,7 @@
 	"Source": "",
 	"Speech Playback Speed": "",
 	"Speech recognition error: {{error}}": "",
+	"Speech synthesis failed. Check Text-to-Speech settings.": "",
 	"Speech-to-Text": "",
 	"Speech-to-Text Engine": "",
 	"Speech-to-Text Language": "",

@@ -451,6 +451,28 @@
 					}
 				} else if (type === 'chat:message:delta' || type === 'message') {
 					message.content += data.content;
+					// Same TTS path as streaming chat:completion (some backends emit deltas only)
+					if ($showCallOverlay) {
+						const messageContentParts = getMessageContentParts(
+							removeAllDetails(message.content),
+							$config?.audio?.tts?.split_on ?? 'punctuation'
+						);
+						messageContentParts.pop();
+						if (
+							messageContentParts.length > 0 &&
+							messageContentParts[messageContentParts.length - 1] !== message.lastSentence
+						) {
+							message.lastSentence = messageContentParts[messageContentParts.length - 1];
+							eventTarget.dispatchEvent(
+								new CustomEvent('chat', {
+									detail: {
+										id: message.id,
+										content: messageContentParts[messageContentParts.length - 1]
+									}
+								})
+							);
+						}
+					}
 				} else if (type === 'chat:message' || type === 'replace') {
 					message.content = data.content;
 				} else if (type === 'chat:message:files' || type === 'files') {
@@ -1630,8 +1652,11 @@
 			}
 
 			if (choices[0]?.message?.content) {
-				// Non-stream response
+				// Non-stream response (no deltas): streaming TTS branch below never runs.
 				message.content += choices[0]?.message?.content;
+				if ($showCallOverlay) {
+					message.callOverlayTtsNonStream = true;
+				}
 			} else {
 				// Stream response
 				let value = (choices[0]?.delta?.content ?? '').replace(/\u200b/g, '');
@@ -1732,17 +1757,34 @@
 
 			// Emit chat event for TTS (only when call overlay is active)
 			if ($showCallOverlay) {
-				let lastMessageContentPart =
-					getMessageContentParts(
-						removeAllDetails(message.content),
-						$config?.audio?.tts?.split_on ?? 'punctuation'
-					)?.at(-1) ?? '';
-				if (lastMessageContentPart) {
-					eventTarget.dispatchEvent(
-						new CustomEvent('chat', {
-							detail: { id: message.id, content: lastMessageContentPart }
-						})
-					);
+				const cleaned = removeAllDetails(message.content);
+				const splitOn = $config?.audio?.tts?.split_on ?? 'punctuation';
+				if (message.callOverlayTtsNonStream) {
+					// Non-streaming reply: queue every sentence (streaming path never fired).
+					delete message.callOverlayTtsNonStream;
+					const parts = getMessageContentParts(cleaned, splitOn);
+					for (const part of parts) {
+						const p = part.trim();
+						if (p) {
+							eventTarget.dispatchEvent(
+								new CustomEvent('chat', {
+									detail: { id: message.id, content: p }
+								})
+							);
+						}
+					}
+				} else {
+					let lastMessageContentPart = getMessageContentParts(cleaned, splitOn)?.at(-1) ?? '';
+					if (!lastMessageContentPart.trim()) {
+						lastMessageContentPart = cleaned.trim();
+					}
+					if (lastMessageContentPart) {
+						eventTarget.dispatchEvent(
+							new CustomEvent('chat', {
+								detail: { id: message.id, content: lastMessageContentPart }
+							})
+						);
+					}
 				}
 			}
 			eventTarget.dispatchEvent(
