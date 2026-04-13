@@ -494,6 +494,7 @@ def _inject_system(messages: list[dict[str, Any]], extra: str) -> list[dict[str,
 async def maybe_image_generation_chat(
     messages: list[dict[str, Any]],
     route_note: str,
+    requested_model: str = "",
 ) -> Optional[dict[str, Any]]:
     """Вызов /v1/images/generations при явном запросе на картинку (текстовый промпт)."""
     want = "image_gen" in route_note
@@ -508,7 +509,7 @@ async def maybe_image_generation_chat(
     ids = await get_available_model_ids()
     try:
         model_id, final_prompt = await prepare_image_generation_prompt(
-            _client, text, messages, ids
+            _client, text, messages, ids, requested_model
         )
         img_body = {
             "model": model_id,
@@ -576,9 +577,13 @@ async def chat_completions(request: Request) -> Response:
     lu = last_user_message(messages)
     last_text = _content_to_text(lu.get("content") if lu else None)
 
-    # Быстрые перехваты gena (только авто-модель): стримы — до роутера; картинка JSON — до роутера.
-    if auto_mode and last_text and stream:
-        if should_stream_presentation(last_text, stream):
+    # Быстрые перехваты gena (в авто-режиме: презентация, deep research; картинки — всегда).
+    want_image = False
+    if last_text and stream:
+        want_image = should_stream_image_gena(last_text, stream, message_has_image(messages), messages)
+
+    if stream and (auto_mode or want_image):
+        if auto_mode and should_stream_presentation(last_text, stream):
             logger.info(
                 "gena intercept=presentation stream=1 rid=%s",
                 getattr(request.state, "request_id", "")[:12],
@@ -594,25 +599,25 @@ async def chat_completions(request: Request) -> Response:
                 media_type="text/event-stream",
                 headers=_sse_headers(request),
             )
-        if should_stream_deep_gena(last_text, stream):
+        if auto_mode and should_stream_deep_gena(last_text, stream):
             logger.info("gena intercept=deep_research stream=1")
             return StreamingResponse(
                 stream_deep_research(_client, last_text, available),
                 media_type="text/event-stream",
                 headers=_sse_headers(request),
             )
-        if should_stream_image_gena(last_text, stream, message_has_image(messages), messages):
-            logger.info("gena intercept=image stream=1")
+        if want_image:
+            logger.info("gena intercept=image stream=1 requested_model=%r", requested_model)
             return StreamingResponse(
                 stream_image_markdown(
-                    request, _client, last_text, available, messages
+                    request, _client, last_text, available, messages, req
                 ),
                 media_type="text/event-stream",
                 headers=_sse_headers(request),
             )
 
     if not stream:
-        img_early = await maybe_image_generation_chat(messages, "")
+        img_early = await maybe_image_generation_chat(messages, "", req)
         if img_early:
             return JSONResponse(img_early)
 

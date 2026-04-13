@@ -164,10 +164,11 @@ async def prepare_image_generation_prompt(
     user_text: str,
     messages: list[dict[str, Any]] | None,
     available_ids: set[str],
+    requested_model: str = "",
 ) -> tuple[str, str]:
     """Подобрать модель и финальный англ. промпт (с учётом URL предыдущей картинки при правках)."""
     image_refs = _collect_assistant_image_urls(messages or [], max_n=4)
-    model_id = settings.image_gen_model
+    model_id = requested_model if (requested_model and requested_model != settings.auto_model_id) else settings.image_gen_model
     if model_id not in available_ids:
         for c in ("qwen-image", "qwen-image-lightning", "sd3.5-large-image", "z-image-turbo"):
             if c in available_ids:
@@ -689,23 +690,32 @@ async def stream_image_markdown(
     prompt: str,
     available_ids: set[str],
     messages: list[dict[str, Any]] | None = None,
+    requested_model: str = "",
 ) -> AsyncGenerator[str, None]:
     """Только картинка в markdown; статус — delta.gena (спиннер + подпись в UI)."""
     yield sse_delta("", gena={"type": "image_generation_start"})
     try:
         model_id, final_prompt = await prepare_image_generation_prompt(
-            client, prompt, messages, available_ids
+            client, prompt, messages, available_ids, requested_model
         )
-        img_resp = await client.post_json(
-            "/images/generations",
-            {
-                "model": model_id,
-                "prompt": final_prompt,
-                "n": 1,
-                "size": "1024x1024",
-                "response_format": "b64_json",
-            },
-        )
+        
+        payload = {
+            "model": model_id,
+            "prompt": final_prompt,
+            "n": 1,
+            "size": "1024x1024",
+            "response_format": "b64_json",
+        }
+        try:
+            img_resp = await client.post_json("/images/generations", payload)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (400, 404) and model_id != settings.image_gen_model:
+                logger.warning("requested_model %s failed for images, retrying with default %s", model_id, settings.image_gen_model)
+                payload["model"] = settings.image_gen_model
+                img_resp = await client.post_json("/images/generations", payload)
+            else:
+                raise
+
         href = await image_api_response_to_sse_href(img_resp, settings.data_dir)
         if href.startswith("http://") or href.startswith("https://"):
             display = href
