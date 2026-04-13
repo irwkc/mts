@@ -4,6 +4,7 @@
 	const i18n = getContext('i18n');
 
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
+	import { useModelProfileImageFallback } from '$lib/utils/modelImageFallback';
 
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import PinSlash from '$lib/components/icons/PinSlash.svelte';
@@ -39,9 +40,7 @@
 					src={`${WEBUI_API_BASE_URL}/models/model/profile/image?id=${model.id}&lang=${$i18n.language}`}
 					class=" size-5 rounded-full -translate-x-[0.5px]"
 					alt="logo"
-					on:error={(e) => {
-						e.currentTarget.src = '/favicon.png';
-					}}
+					on:error={useModelProfileImageFallback}
 				/>
 			</div>
 

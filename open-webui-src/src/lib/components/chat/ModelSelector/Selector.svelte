@@ -26,6 +26,8 @@
 	} from '$lib/stores';
 	import { toast } from 'svelte-sonner';
 	import { capitalizeFirstLetter, sanitizeResponseContent, splitStream } from '$lib/utils';
+	import { useModelProfileImageFallback } from '$lib/utils/modelImageFallback';
+	import { WEBUI_API_BASE_URL } from '$lib/constants';
 	import { getModels } from '$lib/apis';
 
 	import ChevronDown from '$lib/components/icons/ChevronDown.svelte';
@@ -414,7 +416,7 @@
 		id="model-selector-{id}-button"
 	>
 		<div
-			class="flex w-full text-left px-0.5 bg-transparent truncate {triggerClassName} justify-between {($settings?.highContrastMode ??
+			class="flex w-full text-left px-0.5 bg-transparent items-center gap-2 min-w-0 {triggerClassName} justify-between {($settings?.highContrastMode ??
 			false)
 				? 'dark:placeholder-gray-100 placeholder-gray-800'
 				: 'placeholder-gray-400'}"
@@ -427,12 +429,25 @@
 				);
 			}}
 		>
-			{#if selectedModel}
-				{selectedModel.label}
-			{:else}
-				{placeholder}
-			{/if}
-			<ChevronDown className=" self-center ml-2 size-3" strokeWidth="2.5" />
+			<div class="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+				{#if selectedModel?.model?.id}
+					<img
+						src={`${WEBUI_API_BASE_URL}/models/model/profile/image?id=${selectedModel.model.id}&lang=${$i18n.language}`}
+						alt=""
+						class="rounded-full size-6 shrink-0"
+						loading="lazy"
+						on:error={useModelProfileImageFallback}
+					/>
+				{/if}
+				<span class="truncate">
+					{#if selectedModel}
+						{selectedModel.label}
+					{:else}
+						{placeholder}
+					{/if}
+				</span>
+			</div>
+			<ChevronDown className=" self-center ml-2 size-3 shrink-0" strokeWidth="2.5" />
 		</div>
 	</DropdownMenu.Trigger>
 

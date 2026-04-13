@@ -49,3 +49,28 @@ html:not(.dark) body {
 	background-attachment: fixed;
 	min-height: 100vh;
 }
+
+/* Splash: не чистый чёрный; логотип не «ломается» визуально при загрузке */
+#splash-screen {
+	background: linear-gradient(
+		165deg,
+		oklch(0.99 0.01 230) 0%,
+		oklch(0.96 0.02 235) 100%
+	) !important;
+}
+
+html.dark #splash-screen {
+	background: linear-gradient(
+		145deg,
+		oklch(0.1 0.04 285) 0%,
+		oklch(0.12 0.055 305) 45%,
+		oklch(0.09 0.04 200) 100%
+	) !important;
+}
+
+#splash-screen #logo,
+#splash-screen #logo-her {
+	object-fit: contain;
+	max-width: min(88vw, 18rem);
+	image-rendering: auto;
+}

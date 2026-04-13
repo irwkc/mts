@@ -423,6 +423,33 @@ async def _href_to_local_path(href: str) -> Optional[Path]:
     return None
 
 
+def _slide_image_search_queries(row: dict[str, Any]) -> list[str]:
+    """Несколько запросов для DDG Images: основной + усилители (часто пустой первый проход)."""
+    q = (row.get("image_query") or "").strip()
+    title = str(row.get("title") or "").strip()
+    base = (q or title)[:500]
+    if len(base) < 2:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(s: str) -> None:
+        s = s.strip()[:500]
+        if len(s) < 2:
+            return
+        key = s.casefold()
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(s)
+
+    add(base)
+    add(f"{base} photo")
+    add(f"{base} stock image")
+    add(f"{base} photography")
+    return out[:8]
+
+
 async def generate_slide_image(
     client: MWSClient,
     image_model: str,
@@ -431,7 +458,10 @@ async def generate_slide_image(
     """Одна картинка для слайда; файл на диске для add_picture."""
     p = (
         "Professional presentation slide illustration, clean modern flat or soft 3D style, "
-        "vivid colors, generous whitespace, no text, no letters, no watermark. "
+        "vivid colors, generous whitespace. "
+        "CRITICAL: absolutely no text, no letters, no numbers, no captions, no labels, "
+        "no logos, no watermarks, no typography, no infographics with writing, "
+        "no UI mockups with text, no signs with readable words — pure visual scene only. "
         + (prompt_en or "")[:3500]
     )
     try:
@@ -686,14 +716,12 @@ async def _resolve_one_slide_image(
     row: dict[str, Any],
     model_id: str,
 ) -> Optional[Path]:
-    """Картинка: веб-поиск и/или нейро в зависимости от image_mode."""
+    """Картинка: сначала веб (DDG), затем нейро. Режим влияет только на обязательность нейро-fallback."""
     mode = str(row.get("image_mode") or "auto").strip().lower()
-    q = (row.get("image_query") or "").strip()
-    title = str(row.get("title") or "")
-    search_q = (q or title)[:500]
 
     async def gen_neuro() -> Optional[Path]:
         ip = row.get("image_prompt")
+        title = str(row.get("title") or "")
         if isinstance(ip, str) and ip.strip():
             prompt = ip.strip()
         else:
@@ -706,21 +734,31 @@ async def _resolve_one_slide_image(
             logger.warning("slide neuro image: %s", e)
             return None
 
+    async def try_web() -> Optional[Path]:
+        """Несколько формулировок запроса — иначе DDG часто отдаёт пусто или битые URL."""
+        for sq in _slide_image_search_queries(row):
+            urls = image_search_ddg_urls(sq, max_results=12)
+            if not urls:
+                logger.debug("slide image DDG: no urls for query=%r", sq[:80])
+                continue
+            got = await download_first_web_image(urls)
+            if got:
+                return got
+        return None
+
+    # Всегда в приоритете реальные изображения из сети (в т.ч. при image_mode=generate —
+    # нейро только если веб не дал файла).
+    web_got = await try_web()
+    if web_got:
+        return web_got
+
     if mode in ("search", "web", "internet", "ddg"):
-        urls = image_search_ddg_urls(search_q, max_results=12)
-        got = await download_first_web_image(urls)
-        if got:
-            return got
         return await gen_neuro()
 
     if mode in ("generate", "ai", "neuro", "neural"):
         return await gen_neuro()
 
-    # auto: реальные фото/схемы из сети, иначе нейро
-    urls = image_search_ddg_urls(search_q, max_results=12)
-    got = await download_first_web_image(urls)
-    if got:
-        return got
+    # auto и прочее: как и раньше — нейро после неудачного веба
     return await gen_neuro()
 
 

@@ -90,7 +90,12 @@
 				logo.id = 'logo';
 				logo.style =
 					'position: absolute; width: auto; height: 6rem; top: 44%; left: 50%; transform: translateX(-50%); display:block;';
+				logo.alt = '';
 				logo.src = isDarkMode ? '/static/splash-dark.png' : '/static/splash.png';
+				logo.onerror = function () {
+					this.onerror = null;
+					this.src = '/static/favicon.png';
+				};
 
 				document.addEventListener('DOMContentLoaded', function () {
 					const splash = document.getElementById('splash-screen');
@@ -139,7 +144,9 @@
 					id="logo-her"
 					style="width: auto; height: 13rem"
 					src="/static/splash.png"
+					alt=""
 					class="animate-pulse-fast"
+					onerror="this.onerror=null;this.src='/static/favicon.png'"
 				/>
 
 				<div style="position: relative; width: 24rem; margin-top: 0.5rem">
