@@ -650,7 +650,7 @@
 						<span id="response-message-model-name" class="line-clamp-1 text-black dark:text-white">
 							{model?.name ?? message.model}
 						</span>
-						{#if $genaImageGeneration.active && !message.done && !message.error}
+						{#if $genaImageGeneration.active && $genaImageGeneration.messageId === message.id && !message.done && !message.error}
 							<Spinner className="size-3.5 shrink-0 text-teal-500 dark:text-teal-400/90" />
 							<span
 								class="text-xs font-medium text-gray-600 dark:text-gray-400 shrink-0"

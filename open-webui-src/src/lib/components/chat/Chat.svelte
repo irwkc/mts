@@ -1611,7 +1611,7 @@
 			const gena = choices[0]?.delta?.gena;
 			if (gena != null) {
 				applyGenaDelta(gena);
-				applyGenaImageDelta(gena);
+				applyGenaImageDelta(gena, message.id);
 				if (
 					typeof gena === 'object' &&
 					gena.type === 'presentation_style_prompt' &&
@@ -2564,7 +2564,7 @@
 
 					if (gena != null) {
 						applyGenaDelta(gena);
-						applyGenaImageDelta(gena);
+						applyGenaImageDelta(gena, message.id);
 					}
 
 					if (mergedResponse.content == '' && value == '\n') {

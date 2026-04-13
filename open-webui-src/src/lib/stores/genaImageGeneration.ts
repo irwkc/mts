@@ -1,22 +1,31 @@
 import { writable } from 'svelte/store';
 
-/** Статус нейро-картинки: спиннер и подпись у имени модели (delta.gena из шлюза). */
-export const genaImageGeneration = writable<{ active: boolean; label: string }>({
+/** Статус нейро-картинки: спиннер и подпись только у того ответа, в чьём стриме пришёл gena. */
+export const genaImageGeneration = writable<{
+	active: boolean;
+	label: string;
+	messageId: string | null;
+}>({
 	active: false,
-	label: ''
+	label: '',
+	messageId: null
 });
 
-export function applyGenaImageDelta(raw: unknown) {
+export function applyGenaImageDelta(raw: unknown, forMessageId: string | null) {
 	const d = raw as { type?: string };
 	if (!d || typeof d !== 'object' || !d.type) return;
 	if (d.type === 'image_generation_start') {
-		genaImageGeneration.set({ active: true, label: 'Генерация изображения…' });
+		genaImageGeneration.set({
+			active: true,
+			label: 'Генерация изображения…',
+			messageId: forMessageId
+		});
 	}
 	if (d.type === 'image_generation_done') {
-		genaImageGeneration.set({ active: false, label: '' });
+		genaImageGeneration.set({ active: false, label: '', messageId: null });
 	}
 }
 
 export function clearGenaImageGeneration() {
-	genaImageGeneration.set({ active: false, label: '' });
+	genaImageGeneration.set({ active: false, label: '', messageId: null });
 }
