@@ -64,7 +64,12 @@
 		displayFileHandler
 	} from '$lib/utils';
 	import { AudioQueue } from '$lib/utils/audio';
-	import { webuiLog, webuiLogFull, summarizeChatPayload } from '$lib/utils/webuiClientLog';
+	import {
+		webuiLog,
+		webuiLogFull,
+		summarizeChatPayload,
+		neuralLog
+	} from '$lib/utils/webuiClientLog';
 
 	import {
 		archiveChatById,
@@ -1630,14 +1635,14 @@
 	const chatCompletionEventHandler = async (data, message, chatId) => {
 		const { id, done, choices, content, output, sources, selected_model_id, error, usage } = data;
 
-		webuiLog('stream:chat:completion', {
+		neuralLog('sse:chat:completion', {
 			messageId: message.id,
 			done: !!done,
 			hasChoices: !!choices,
 			hasError: !!error,
 			hasContentField: content != null && content !== '',
 			usage,
-			payload: summarizeChatPayload(data)
+			chunk: data
 		});
 		webuiLogFull('stream:chat:completion:raw', data);
 
@@ -2194,7 +2199,7 @@
 				}
 			})
 		);
-		webuiLog('ui:chat:start', { responseMessageId, model: model?.id });
+		neuralLog('ui:chat:start', { responseMessageId, model: model?.id });
 		await tick();
 
 		let userLocation;
@@ -2411,7 +2416,7 @@
 			if (res.error) {
 				await handleOpenAIError(res.error, responseMessage);
 			} else {
-				webuiLog('api:chat/completions:task', summarizeChatPayload(res));
+				neuralLog('api:chat/completions:task', res);
 				if (taskIds) {
 					taskIds.push(res.task_id);
 				} else {

@@ -1,4 +1,5 @@
 import { OPENAI_API_BASE_URL, WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
+import { neuralLog, neuralLogError } from '$lib/utils/webuiClientLog';
 
 export const getOpenAIConfig = async (token: string = '') => {
 	let error = null;
@@ -338,6 +339,11 @@ export const chatCompletion = async (
 	const controller = new AbortController();
 	let error = null;
 
+	neuralLog('http:chat/completions:request', {
+		url: `${url}/chat/completions`,
+		body
+	});
+
 	const res = await fetch(`${url}/chat/completions`, {
 		signal: controller.signal,
 		method: 'POST',
@@ -348,6 +354,7 @@ export const chatCompletion = async (
 		body: JSON.stringify(body)
 	}).catch((err) => {
 		console.error(err);
+		neuralLogError('http:chat/completions:fetch', err);
 		error = err;
 		return null;
 	});
@@ -366,6 +373,11 @@ export const generateOpenAIChatCompletion = async (
 ) => {
 	let error = null;
 
+	neuralLog('http:api/chat/completions:request', {
+		url: `${url}/chat/completions`,
+		body
+	});
+
 	const res = await fetch(`${url}/chat/completions`, {
 		method: 'POST',
 		headers: {
@@ -381,6 +393,7 @@ export const generateOpenAIChatCompletion = async (
 		})
 		.catch((err) => {
 			error = err?.detail ?? err;
+			neuralLogError('http:api/chat/completions:error', error ?? err);
 			return null;
 		});
 
@@ -388,6 +401,7 @@ export const generateOpenAIChatCompletion = async (
 		throw error;
 	}
 
+	neuralLog('http:api/chat/completions:response', res);
 	return res;
 };
 
@@ -398,6 +412,8 @@ export const synthesizeOpenAISpeech = async (
 	model: string = 'tts-1'
 ) => {
 	let error = null;
+
+	neuralLog('http:audio/speech:request', { model, voice: speaker, inputPreview: text });
 
 	const res = await fetch(`${OPENAI_API_BASE_URL}/audio/speech`, {
 		method: 'POST',
@@ -412,6 +428,7 @@ export const synthesizeOpenAISpeech = async (
 		})
 	}).catch((err) => {
 		console.error(err);
+		neuralLogError('http:audio/speech:fetch', err);
 		error = err;
 		return null;
 	});
