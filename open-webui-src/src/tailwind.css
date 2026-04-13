@@ -3,18 +3,70 @@
 @config '../tailwind.config.js';
 
 @theme {
-	--color-gray-50: oklch(0.98 0 0);
-	--color-gray-100: oklch(0.94 0 0);
-	--color-gray-200: oklch(0.92 0 0);
-	--color-gray-300: oklch(0.85 0 0);
-	--color-gray-400: oklch(0.77 0 0);
-	--color-gray-500: oklch(0.69 0 0);
-	--color-gray-600: oklch(0.51 0 0);
-	--color-gray-700: oklch(0.42 0 0);
-	--color-gray-800: oklch(0.32 0 0);
-	--color-gray-850: oklch(0.27 0 0);
-	--color-gray-900: oklch(0.2 0 0);
-	--color-gray-950: oklch(0.16 0 0);
+	/* Серо-бирюзовая база (холодный серый, лёгкий циан) */
+	--color-gray-50: oklch(0.98 0.008 230);
+	--color-gray-100: oklch(0.95 0.015 230);
+	--color-gray-200: oklch(0.9 0.02 230);
+	--color-gray-300: oklch(0.82 0.028 235);
+	--color-gray-400: oklch(0.72 0.035 235);
+	--color-gray-500: oklch(0.58 0.04 235);
+	--color-gray-600: oklch(0.48 0.042 240);
+	--color-gray-700: oklch(0.38 0.045 245);
+	--color-gray-800: oklch(0.28 0.05 250);
+	--color-gray-850: oklch(0.24 0.048 255);
+	--color-gray-900: oklch(0.19 0.05 260);
+	--color-gray-950: oklch(0.14 0.045 265);
+
+	/* Акценты: бирюза (вместо классического blue) */
+	--color-blue-50: oklch(0.97 0.03 195);
+	--color-blue-100: oklch(0.93 0.06 195);
+	--color-blue-200: oklch(0.87 0.09 195);
+	--color-blue-300: oklch(0.78 0.12 195);
+	--color-blue-400: oklch(0.7 0.14 195);
+	--color-blue-500: oklch(0.62 0.14 195);
+	--color-blue-600: oklch(0.52 0.13 198);
+	--color-blue-700: oklch(0.44 0.11 200);
+	--color-blue-800: oklch(0.36 0.09 200);
+	--color-blue-900: oklch(0.3 0.07 200);
+	--color-blue-950: oklch(0.22 0.05 200);
+
+	/* Индиго / фиолетовый — тёмно-пурпурные акценты */
+	--color-indigo-50: oklch(0.96 0.02 290);
+	--color-indigo-100: oklch(0.91 0.04 290);
+	--color-indigo-200: oklch(0.84 0.07 290);
+	--color-indigo-300: oklch(0.74 0.1 290);
+	--color-indigo-400: oklch(0.64 0.14 292);
+	--color-indigo-500: oklch(0.52 0.18 292);
+	--color-indigo-600: oklch(0.44 0.2 294);
+	--color-indigo-700: oklch(0.38 0.18 295);
+	--color-indigo-800: oklch(0.32 0.15 295);
+	--color-indigo-900: oklch(0.26 0.12 295);
+	--color-indigo-950: oklch(0.18 0.09 295);
+
+	--color-violet-50: oklch(0.96 0.025 295);
+	--color-violet-100: oklch(0.9 0.05 295);
+	--color-violet-200: oklch(0.82 0.09 295);
+	--color-violet-300: oklch(0.72 0.13 295);
+	--color-violet-400: oklch(0.62 0.16 295);
+	--color-violet-500: oklch(0.52 0.19 295);
+	--color-violet-600: oklch(0.45 0.2 295);
+	--color-violet-700: oklch(0.38 0.18 295);
+	--color-violet-800: oklch(0.32 0.14 295);
+	--color-violet-900: oklch(0.26 0.11 295);
+	--color-violet-950: oklch(0.18 0.08 295);
+
+	/* sky — в тон бирюзе */
+	--color-sky-50: oklch(0.97 0.025 200);
+	--color-sky-100: oklch(0.94 0.05 200);
+	--color-sky-200: oklch(0.88 0.08 200);
+	--color-sky-300: oklch(0.8 0.11 200);
+	--color-sky-400: oklch(0.72 0.13 200);
+	--color-sky-500: oklch(0.64 0.14 200);
+	--color-sky-600: oklch(0.54 0.13 200);
+	--color-sky-700: oklch(0.45 0.11 200);
+	--color-sky-800: oklch(0.36 0.09 200);
+	--color-sky-900: oklch(0.28 0.07 200);
+	--color-sky-950: oklch(0.2 0.05 200);
 }
 
 /*

@@ -108,7 +108,7 @@
 	import Image from '../common/Image.svelte';
 	import { getBanners } from '$lib/apis/configs';
 	import GenaPresentation from '$lib/components/chat/GenaPresentation.svelte';
-	import { applyGenaDelta, genaThinking } from '$lib/stores/genaPresentation';
+	import { applyGenaDelta, setGenaThinking } from '$lib/stores/genaPresentation';
 
 	export let chatIdProp = '';
 
@@ -1588,7 +1588,7 @@
 	};
 
 	const chatCompletionEventHandler = async (data, message, chatId) => {
-		genaThinking.set(false);
+		setGenaThinking(false);
 
 		const { id, done, choices, content, output, sources, selected_model_id, error, usage } = data;
 
@@ -1609,6 +1609,13 @@
 			const gena = choices[0]?.delta?.gena;
 			if (gena != null) {
 				applyGenaDelta(gena);
+				if (
+					typeof gena === 'object' &&
+					gena.type === 'presentation_style_prompt' &&
+					Array.isArray(gena.styles)
+				) {
+					message.genaPresentationStyles = gena.styles;
+				}
 			}
 
 			if (choices[0]?.message?.content) {
@@ -1616,7 +1623,7 @@
 				message.content += choices[0]?.message?.content;
 			} else {
 				// Stream response
-				let value = choices[0]?.delta?.content ?? '';
+				let value = (choices[0]?.delta?.content ?? '').replace(/\u200b/g, '');
 				if (message.content == '' && value == '\n') {
 					console.log('Empty response');
 				} else {
@@ -2109,7 +2116,7 @@
 		);
 
 		scrollToBottom();
-		genaThinking.set(true);
+		setGenaThinking(true);
 		eventTarget.dispatchEvent(
 			new CustomEvent('chat:start', {
 				detail: {

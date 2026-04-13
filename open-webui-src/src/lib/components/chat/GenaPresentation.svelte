@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
-	import { genaPresentation, genaThinking } from '$lib/stores/genaPresentation';
+	import { genaPresentation, genaThinking, genaThinkingProgress } from '$lib/stores/genaPresentation';
 
 	const MARK = 'data-gena-pptx-embed';
 
 	let dockMinimized = false;
 
 	$: p = $genaPresentation;
+	$: progressPct = Math.round($genaThinkingProgress);
 
 	function previewUrlFromAnchor(a: HTMLAnchorElement): string | null {
 		const href = a.getAttribute('href');
@@ -61,12 +62,22 @@
 	}
 </script>
 
-<!-- «gena думает…» -->
+<!-- «gena думает…» + полоса прогресса -->
 {#if $genaThinking}
 	<div class="gena-thinking gena-thinking-visible" aria-live="polite">
 		<div class="gena-thinking-card">
-			<span class="gena-thinking-spinner" aria-hidden="true"></span>
-			<span>gena думает…</span>
+			<div class="gena-thinking-row">
+				<span class="gena-thinking-spinner" aria-hidden="true"></span>
+				<div class="gena-thinking-text">
+					<span class="gena-thinking-title">gena думает…</span>
+					<span class="gena-thinking-sub">ожидайте ответ — идёт обработка запроса</span>
+				</div>
+				<span class="gena-thinking-pct">{progressPct}%</span>
+			</div>
+			<div class="gena-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progressPct}>
+				<div class="gena-progress-fill" style="width: {$genaThinkingProgress}%"></div>
+				<div class="gena-progress-shimmer"></div>
+			</div>
 		</div>
 	</div>
 {/if}
@@ -139,6 +150,7 @@
 		transition:
 			opacity 0.2s ease,
 			transform 0.2s ease;
+		min-width: min(420px, calc(100vw - 32px));
 	}
 	.gena-thinking-visible {
 		opacity: 1;
@@ -146,30 +158,94 @@
 		pointer-events: auto;
 	}
 	.gena-thinking-card {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 10px 16px;
-		border-radius: 999px;
-		background: linear-gradient(135deg, rgba(30, 27, 75, 0.95), rgba(15, 23, 42, 0.95));
-		border: 1px solid rgba(99, 102, 241, 0.45);
-		color: #e0e7ff;
+		padding: 14px 16px 12px;
+		border-radius: 14px;
+		background: linear-gradient(145deg, oklch(0.22 0.06 285) 0%, oklch(0.18 0.055 270) 50%, oklch(0.16 0.05 250) 100%);
+		border: 1px solid oklch(0.45 0.12 195 / 0.45);
+		box-shadow:
+			0 12px 40px oklch(0.05 0.05 280 / 0.55),
+			0 0 0 1px oklch(0.55 0.15 295 / 0.15) inset;
+		color: oklch(0.92 0.02 230);
 		font-size: 13px;
 		font-family: ui-sans-serif, system-ui, sans-serif;
-		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+	}
+	.gena-thinking-row {
+		display: flex;
+		align-items: flex-start;
+		gap: 12px;
+		margin-bottom: 10px;
 	}
 	.gena-thinking-spinner {
-		width: 18px;
-		height: 18px;
-		border: 2px solid rgba(199, 210, 254, 0.35);
-		border-top-color: #a5b4fc;
+		width: 20px;
+		height: 20px;
+		margin-top: 2px;
+		border: 2px solid oklch(0.55 0.1 195 / 0.35);
+		border-top-color: oklch(0.75 0.14 195);
 		border-radius: 50%;
-		animation: gena-spin 0.7s linear infinite;
+		animation: gena-spin 0.75s linear infinite;
 		flex-shrink: 0;
 	}
 	@keyframes gena-spin {
 		to {
 			transform: rotate(360deg);
+		}
+	}
+	.gena-thinking-text {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		flex: 1;
+		min-width: 0;
+	}
+	.gena-thinking-title {
+		font-weight: 600;
+		color: oklch(0.95 0.03 200);
+	}
+	.gena-thinking-sub {
+		font-size: 11px;
+		color: oklch(0.72 0.04 235);
+		line-height: 1.35;
+	}
+	.gena-thinking-pct {
+		font-variant-numeric: tabular-nums;
+		font-size: 12px;
+		font-weight: 600;
+		color: oklch(0.78 0.12 195);
+		flex-shrink: 0;
+	}
+	.gena-progress-track {
+		position: relative;
+		height: 6px;
+		border-radius: 999px;
+		background: oklch(0.25 0.04 270 / 0.9);
+		overflow: hidden;
+		border: 1px solid oklch(0.4 0.08 295 / 0.35);
+	}
+	.gena-progress-fill {
+		height: 100%;
+		border-radius: 999px;
+		background: linear-gradient(90deg, oklch(0.55 0.14 195), oklch(0.48 0.18 295));
+		transition: width 0.25s ease-out;
+		box-shadow: 0 0 12px oklch(0.55 0.14 195 / 0.45);
+	}
+	.gena-progress-shimmer {
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(
+			90deg,
+			transparent,
+			oklch(0.95 0.05 200 / 0.12),
+			transparent
+		);
+		animation: gena-shimmer 1.4s ease-in-out infinite;
+		pointer-events: none;
+	}
+	@keyframes gena-shimmer {
+		0% {
+			transform: translateX(-100%);
+		}
+		100% {
+			transform: translateX(100%);
 		}
 	}
 
@@ -184,10 +260,10 @@
 		flex-direction: column;
 		font-family: ui-sans-serif, system-ui, sans-serif;
 		font-size: 13px;
-		background: linear-gradient(165deg, #16161e 0%, #0c0c10 100%);
-		border: 1px solid rgba(99, 102, 241, 0.35);
+		background: linear-gradient(165deg, oklch(0.2 0.055 285) 0%, oklch(0.14 0.05 270) 100%);
+		border: 1px solid oklch(0.45 0.1 195 / 0.4);
 		border-radius: 12px;
-		box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+		box-shadow: 0 12px 40px oklch(0.05 0.04 280 / 0.6);
 		overflow: hidden;
 		transition:
 			transform 0.2s ease,
@@ -203,11 +279,11 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 10px 12px;
-		background: rgba(99, 102, 241, 0.15);
-		border-bottom: 1px solid rgba(99, 102, 241, 0.25);
+		background: oklch(0.28 0.08 295 / 0.35);
+		border-bottom: 1px solid oklch(0.42 0.1 195 / 0.3);
 	}
 	.gena-dock-head strong {
-		color: #e0e7ff;
+		color: oklch(0.93 0.03 200);
 		font-weight: 600;
 		font-size: 13px;
 	}
@@ -218,7 +294,7 @@
 	.gena-dock-actions button {
 		background: transparent;
 		border: none;
-		color: #a5b4fc;
+		color: oklch(0.72 0.12 195);
 		cursor: pointer;
 		padding: 2px 6px;
 		border-radius: 4px;
@@ -226,13 +302,13 @@
 		line-height: 1;
 	}
 	.gena-dock-actions button:hover {
-		background: rgba(255, 255, 255, 0.08);
+		background: oklch(0.95 0.02 230 / 0.08);
 	}
 	.gena-dock-body {
 		padding: 10px 12px 14px;
 		overflow-y: auto;
 		flex: 1;
-		color: #d1d5db;
+		color: oklch(0.82 0.03 235);
 	}
 	:global(.gena-phase) {
 		display: flex;
@@ -240,21 +316,22 @@
 		gap: 8px;
 		padding: 4px 0;
 		font-size: 12px;
-		color: #9ca3af;
+		color: oklch(0.65 0.04 235);
 	}
 	:global(.gena-phase .dot) {
 		width: 8px;
 		height: 8px;
 		border-radius: 50%;
-		background: #374151;
+		background: oklch(0.4 0.04 250);
 		flex-shrink: 0;
 	}
 	:global(.gena-phase.gena-on .dot) {
-		background: #6366f1;
-		box-shadow: 0 0 8px rgba(99, 102, 241, 0.7);
+		background: oklch(0.62 0.14 195);
+		box-shadow: 0 0 10px oklch(0.55 0.14 195 / 0.65);
 	}
 	:global(.gena-phase.gena-done .dot) {
-		background: #22c55e;
+		background: oklch(0.55 0.14 195);
+		box-shadow: 0 0 6px oklch(0.48 0.16 295 / 0.5);
 	}
 	.gena-slides-grid {
 		display: grid;
@@ -266,8 +343,8 @@
 		position: relative;
 		border-radius: 8px;
 		overflow: hidden;
-		background: #0f0f14;
-		border: 1px solid #2d2d38;
+		background: oklch(0.16 0.04 270);
+		border: 1px solid oklch(0.35 0.06 280 / 0.8);
 		aspect-ratio: 16 / 10;
 	}
 	.gena-slide-tile img {
@@ -284,8 +361,8 @@
 		padding: 4px 6px;
 		font-size: 10px;
 		line-height: 1.2;
-		background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
-		color: #f3f4f6;
+		background: linear-gradient(transparent, oklch(0.12 0.04 285 / 0.92));
+		color: oklch(0.95 0.02 230);
 		max-height: 2.6em;
 		overflow: hidden;
 	}
@@ -294,21 +371,21 @@
 		align-items: center;
 		justify-content: center;
 		height: 100%;
-		color: #6b7280;
+		color: oklch(0.55 0.04 235);
 		font-size: 11px;
 	}
 	.gena-complete {
 		margin-top: 12px;
 		padding-top: 10px;
-		border-top: 1px solid #2d2d38;
+		border-top: 1px solid oklch(0.35 0.06 280 / 0.6);
 	}
 	.gena-dock-complete-label {
 		font-size: 11px;
-		color: #9ca3af;
+		color: oklch(0.65 0.04 235);
 		margin-bottom: 8px;
 	}
 	.gena-err {
-		color: #fca5a5;
+		color: oklch(0.75 0.12 25);
 		font-size: 12px;
 		margin-top: 8px;
 	}
@@ -318,8 +395,8 @@
 		max-width: 100%;
 		border-radius: 8px;
 		overflow: hidden;
-		border: 1px solid rgba(128, 128, 128, 0.35);
-		background: #111;
+		border: 1px solid oklch(0.45 0.08 195 / 0.35);
+		background: oklch(0.14 0.04 285);
 	}
 	:global(.gena-pptx-embed-iframe) {
 		display: block;

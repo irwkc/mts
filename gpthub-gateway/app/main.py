@@ -26,7 +26,9 @@ from app.gena_features import (
     should_stream_deep_gena,
     should_stream_image_gena,
     should_stream_music_gena,
+    has_explicit_presentation_style,
     should_stream_presentation,
+    stream_presentation_style_prompt,
     stream_deep_research,
     stream_image_markdown,
     stream_music_demo,
@@ -640,6 +642,12 @@ async def chat_completions(request: Request) -> Response:
                 "gena intercept=presentation stream=1 rid=%s",
                 getattr(request.state, "request_id", "")[:12],
             )
+            if not has_explicit_presentation_style(last_text):
+                return StreamingResponse(
+                    stream_presentation_style_prompt(request),
+                    media_type="text/event-stream",
+                    headers=_sse_headers(request),
+                )
             return StreamingResponse(
                 stream_presentation_pptx(request, _client, last_text, available),
                 media_type="text/event-stream",

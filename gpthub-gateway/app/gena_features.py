@@ -164,7 +164,9 @@ def public_app_url(request: Request, path: str) -> str:
 
 # Стиль: слова в промпте (см. infer_presentation_style) или опционально префикс [gena_style:id].
 _PRESENTATION_STYLE_HEAD = re.compile(r"^\s*\[gena_style:([a-z0-9_-]+)\]\s*", re.I)
-_PRESENTATION_STYLE_IDS = frozenset({"minimal", "corporate", "modern", "bold", "playful"})
+_PRESENTATION_STYLE_IDS = frozenset(
+    {"minimal", "corporate", "modern", "bold", "playful", "elegant"}
+)
 
 _PRESENTATION_STYLE_HINTS: dict[str, str] = {
     "minimal": (
@@ -187,7 +189,46 @@ _PRESENTATION_STYLE_HINTS: dict[str, str] = {
         "Визуальный стиль: лёгкий — дружелюбные акценты, больше иллюстративности, "
         "мягкие формы; без перегруза."
     ),
+    "elegant": (
+        "Визуальный стиль: изысканный — утончённая типографика, приглушённые акценты, "
+        "визуально «премиальный» вид без визуального шума."
+    ),
 }
+
+
+def has_explicit_presentation_style(user_text: str) -> bool:
+    """Пользователь уже выбрал стиль префиксом [gena_style:id]."""
+    raw = (user_text or "").strip()
+    m = _PRESENTATION_STYLE_HEAD.match(raw)
+    if not m:
+        return False
+    return m.group(1).lower() in _PRESENTATION_STYLE_IDS
+
+
+# Порядок и подписи для UI (Open WebUI) — 6 кнопок выбора стиля
+PRESENTATION_STYLE_UI_ROWS: list[dict[str, str]] = [
+    {"id": "minimal", "label": "Минимализм", "hint": "воздух, 1–2 акцента"},
+    {"id": "corporate", "label": "Деловой", "hint": "сетка, строгая типографика"},
+    {"id": "modern", "label": "Современный", "hint": "крупный текст, плашки"},
+    {"id": "bold", "label": "Яркий", "hint": "контраст, динамика"},
+    {"id": "playful", "label": "Лёгкий", "hint": "дружелюбно, иллюстративно"},
+    {"id": "elegant", "label": "Изысканный", "hint": "премиум, сдержанность"},
+]
+
+
+async def stream_presentation_style_prompt(request: Request) -> AsyncGenerator[str, None]:
+    """Только ответ «выберите стиль» + delta.gena для кнопок в Open WebUI; без сборки PPTX."""
+    _ = request
+    styles = [dict(x) for x in PRESENTATION_STYLE_UI_ROWS]
+    yield sse_delta(
+        "**Отлично!** Выберите стиль вашей презентации — нажмите кнопку ниже, и я продолжу сборку слайдов.\n\n",
+        gena={
+            "type": "presentation_style_prompt",
+            "schema": "gena.presentation.style_prompt.v1",
+            "styles": styles,
+        },
+    )
+    yield "data: [DONE]\n\n"
 
 
 def infer_presentation_style(prompt: str) -> str:
@@ -200,6 +241,7 @@ def infer_presentation_style(prompt: str) -> str:
         ("modern", (r"современ", r"\bmodern\b", r"модерн", r"tech", r"флет")),
         ("bold", (r"ярк", r"контраст", r"\bbold\b", r"смел", r"насыщен")),
         ("playful", (r"лёгк", r"легк", r"игрив", r"дружелюб", r"\bplayful\b", r"неформал")),
+        ("elegant", (r"изыскан", r"премиум", r"элегант", r"\belegant\b", r"утончён")),
     ]
     for sid, pats in checks:
         for p in pats:

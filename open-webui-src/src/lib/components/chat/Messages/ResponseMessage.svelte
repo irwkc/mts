@@ -62,6 +62,7 @@
 	import RegenerateMenu from './ResponseMessage/RegenerateMenu.svelte';
 	import StatusHistory from './ResponseMessage/StatusHistory.svelte';
 	import FullHeightIframe from '$lib/components/common/FullHeightIframe.svelte';
+	import GenaPresentationStylePicker from './GenaPresentationStylePicker.svelte';
 
 	interface MessageType {
 		id: string;
@@ -112,6 +113,8 @@
 			usage?: unknown;
 		};
 		annotation?: { type: string; rating: number };
+		/** delta.gena presentation_style_prompt — кнопки выбора стиля под ответом */
+		genaPresentationStyles?: { id: string; label: string; hint?: string }[];
 	}
 
 	export let chatId = '';
@@ -828,6 +831,15 @@
 
 										updateChat();
 									}}
+								/>
+							{/if}
+
+							{#if message?.done && message?.genaPresentationStyles?.length}
+								<GenaPresentationStylePicker
+									styles={message.genaPresentationStyles}
+									{history}
+									assistantMessageId={message.id}
+									{submitMessage}
 								/>
 							{/if}
 
