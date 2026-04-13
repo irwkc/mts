@@ -162,19 +162,9 @@ def public_app_url(request: Request, path: str) -> str:
     return str(request.base_url).rstrip("/") + "/" + p
 
 
-# Выбор стиля в Open WebUI: пользователь жмёт кнопку → в чат уходит «[gena_style:id] …».
+# Стиль: слова в промпте (см. infer_presentation_style) или опционально префикс [gena_style:id].
 _PRESENTATION_STYLE_HEAD = re.compile(r"^\s*\[gena_style:([a-z0-9_-]+)\]\s*", re.I)
-
-# Список для кнопок в виджете (id стабильны для API).
-PRESENTATION_STYLE_CHOICES: list[dict[str, str]] = [
-    {"id": "minimal", "label": "Минимализм", "emoji": "◻"},
-    {"id": "corporate", "label": "Деловой", "emoji": "◼"},
-    {"id": "modern", "label": "Современный", "emoji": "◆"},
-    {"id": "bold", "label": "Яркий", "emoji": "●"},
-    {"id": "playful", "label": "Лёгкий", "emoji": "◎"},
-]
-
-_PRESENTATION_STYLE_IDS = {x["id"] for x in PRESENTATION_STYLE_CHOICES}
+_PRESENTATION_STYLE_IDS = frozenset({"minimal", "corporate", "modern", "bold", "playful"})
 
 _PRESENTATION_STYLE_HINTS: dict[str, str] = {
     "minimal": (
@@ -200,23 +190,35 @@ _PRESENTATION_STYLE_HINTS: dict[str, str] = {
 }
 
 
-def split_presentation_style(prompt: str) -> tuple[str, Optional[str]]:
-    """Убрать префикс [gena_style:id] из текста; вернуть (текст, id или None)."""
-    t = (prompt or "").strip()
-    m = _PRESENTATION_STYLE_HEAD.match(t)
-    if not m:
-        return t, None
-    sid = m.group(1).lower()
-    rest = t[m.end() :].strip()
-    if sid not in _PRESENTATION_STYLE_IDS:
-        return rest, None
-    return rest, sid
-
-
-def _normalize_presentation_style(sid: Optional[str]) -> str:
-    if sid and sid in _PRESENTATION_STYLE_IDS:
-        return sid
+def infer_presentation_style(prompt: str) -> str:
+    """Угадать стиль по словам в запросе (рус/англ). Иначе corporate."""
+    t = (prompt or "").lower()
+    # Порядок: более специфичные шаблоны раньше при необходимости
+    checks: list[tuple[str, tuple[str, ...]]] = [
+        ("minimal", (r"минимал", r"лаконич", r"\bminimal\b", r"clean\s+style", r"в\s+стиле\s+минимал")),
+        ("corporate", (r"делов", r"корпоратив", r"\bcorporate\b", r"офисн", r"строг", r"business")),
+        ("modern", (r"современ", r"\bmodern\b", r"модерн", r"tech", r"флет")),
+        ("bold", (r"ярк", r"контраст", r"\bbold\b", r"смел", r"насыщен")),
+        ("playful", (r"лёгк", r"легк", r"игрив", r"дружелюб", r"\bplayful\b", r"неформал")),
+    ]
+    for sid, pats in checks:
+        for p in pats:
+            if re.search(p, t, re.I):
+                return sid
     return "corporate"
+
+
+def resolve_presentation_style(prompt: str) -> tuple[str, str]:
+    """(текст без опционального [gena_style:id], выбранный стиль)."""
+    raw = (prompt or "").strip()
+    m = _PRESENTATION_STYLE_HEAD.match(raw)
+    if m:
+        sid = m.group(1).lower()
+        rest = raw[m.end() :].strip()
+        if sid in _PRESENTATION_STYLE_IDS:
+            return rest, sid
+        return rest, infer_presentation_style(rest)
+    return raw, infer_presentation_style(raw)
 
 
 def _presentation_slide_cap(prompt: str) -> int:
@@ -240,20 +242,7 @@ async def stream_presentation_pptx(
     prompt: str,
     available_ids: set[str],
 ) -> AsyncGenerator[str, None]:
-    clean_prompt, style_id = split_presentation_style(prompt)
-    if not style_id:
-        yield sse_delta(
-            "**Выберите стиль презентации** — кнопки внизу экрана. После выбора запрос уйдёт снова автоматически.\n\n",
-            gena={
-                "type": "presentation_style_prompt",
-                "prompt_plain": clean_prompt,
-                "styles": PRESENTATION_STYLE_CHOICES,
-            },
-        )
-        yield "data: [DONE]\n\n"
-        return
-
-    style_key = _normalize_presentation_style(style_id)
+    clean_prompt, style_key = resolve_presentation_style(prompt)
     style_hint = _PRESENTATION_STYLE_HINTS.get(
         style_key, _PRESENTATION_STYLE_HINTS["corporate"]
     )

@@ -1,90 +1,12 @@
 /**
  * Open WebUI + gena: структурированные события презентации (delta.gena в SSE) + док-виджет.
  * + вставка iframe предпросмотра под ссылками *.pptx в чате.
- * + индикатор «gena думает…» на время стрима; выбор стиля презентации кнопками.
+ * + индикатор «gena думает…» на время стрима.
  */
 (function () {
   "use strict";
 
   var MARK = "data-gena-pptx-embed";
-
-  /* Синхронно с gpthub-gateway/app/gena_features.py PRESENTATION_STYLE_CHOICES */
-  var PRESET_STYLES = [
-    { id: "minimal", label: "Минимализм", emoji: "◻" },
-    { id: "corporate", label: "Деловой", emoji: "◼" },
-    { id: "modern", label: "Современный", emoji: "◆" },
-    { id: "bold", label: "Яркий", emoji: "●" },
-    { id: "playful", label: "Лёгкий", emoji: "◎" },
-  ];
-  var STYLE_PROMPT_SNIPPET = "Выберите стиль презентации";
-
-  /* ---------- Последний запрос пользователя (для кнопок стиля, если SSE не дошёл) ---------- */
-  function rememberLastUserPrompt(text) {
-    var t = (text || "").trim();
-    if (t) window.__genaLastUserPrompt = t;
-  }
-
-  function hookUserPromptCapture() {
-    document.addEventListener(
-      "keydown",
-      function (ev) {
-        if (ev.key !== "Enter" || ev.shiftKey) return;
-        var t = ev.target;
-        if (!t || t.tagName !== "TEXTAREA") return;
-        var v = (t.value || "").trim();
-        if (v) rememberLastUserPrompt(v);
-      },
-      true
-    );
-    document.addEventListener(
-      "click",
-      function (ev) {
-        var sb = findSendButton();
-        if (!sb || !ev.target) return;
-        if (sb === ev.target || sb.contains(ev.target)) {
-          var inp = findChatInput();
-          if (!inp) return;
-          var v =
-            inp.tagName === "TEXTAREA" || inp.tagName === "INPUT"
-              ? (inp.value || "").trim()
-              : (inp.textContent || "").trim();
-          if (v) rememberLastUserPrompt(v);
-        }
-      },
-      true
-    );
-  }
-
-  /* Резерв: текст ответа шлюза уже в DOM, а delta.gena не поймался — показать кнопки */
-  function tryDomFallbackStylePicker() {
-    var picker = document.getElementById("gena-style-picker");
-    if (picker && !picker.classList.contains("gena-style-picker-hidden")) {
-      var box = document.getElementById("gena-style-btns");
-      if (box && box.children && box.children.length > 0) return;
-    }
-    var bodyText = "";
-    try {
-      bodyText = document.body.innerText || "";
-    } catch (e) {
-      return;
-    }
-    if (bodyText.indexOf(STYLE_PROMPT_SNIPPET) === -1) return;
-    showStylePicker(PRESET_STYLES, window.__genaLastUserPrompt || "");
-  }
-
-  var _genaMoTimer = null;
-  function bootStylePromptObserver() {
-    if (!document.body) return;
-    var mo = new MutationObserver(function () {
-      if (_genaMoTimer) clearTimeout(_genaMoTimer);
-      _genaMoTimer = setTimeout(function () {
-        _genaMoTimer = null;
-        tryDomFallbackStylePicker();
-      }, 120);
-    });
-    mo.observe(document.body, { childList: true, subtree: true, characterData: true });
-    tryDomFallbackStylePicker();
-  }
 
   /* ---------- «gena думает…» (пока идёт SSE) ---------- */
   function ensureThinkingIndicator() {
@@ -106,118 +28,6 @@
     var el = ensureThinkingIndicator();
     if (on) el.classList.add("gena-thinking-visible");
     else el.classList.remove("gena-thinking-visible");
-  }
-
-  /* ---------- Поле ввода и отправка (разные версии Open WebUI) ---------- */
-  function findChatInput() {
-    var sels = [
-      "#chat-input",
-      "textarea#chat-input",
-      'textarea[name="chat-input"]',
-      "[contenteditable=true]#chat-input",
-      "div#chat-input[contenteditable]",
-      "textarea[placeholder*='Спросите']",
-      "textarea[placeholder*='Ask']",
-      "textarea[placeholder*='Message']",
-      "main textarea",
-    ];
-    for (var i = 0; i < sels.length; i++) {
-      var n = document.querySelector(sels[i]);
-      if (n) return n;
-    }
-    return document.querySelector("textarea");
-  }
-
-  function findSendButton() {
-    var sels = [
-      "#send-message-button",
-      'button[aria-label*="Send"]',
-      'button[title*="Send"]',
-      'button[type="submit"]',
-    ];
-    for (var i = 0; i < sels.length; i++) {
-      var b = document.querySelector(sels[i]);
-      if (b && b.offsetParent !== null) return b;
-    }
-    return document.querySelector('button[aria-label*="Отправ"]');
-  }
-
-  function setInputText(el, text) {
-    if (!el) return;
-    var t = text || "";
-    if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
-      el.value = t;
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-      try {
-        el.focus();
-      } catch (e) {}
-      return;
-    }
-    if (el.isContentEditable) {
-      el.textContent = t;
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      try {
-        el.focus();
-      } catch (e2) {}
-    }
-  }
-
-  function submitStyleChoice(styleId, promptPlain) {
-    var prefix = "[gena_style:" + styleId + "]\n\n";
-    var body = (promptPlain || "").trim();
-    var text = prefix + body;
-    setInputText(findChatInput(), text);
-    hideStylePicker();
-    window.setTimeout(function () {
-      var btn = findSendButton();
-      if (btn) btn.click();
-    }, 50);
-  }
-
-  /* ---------- Панель выбора стиля (кнопки) ---------- */
-  function ensureStylePicker() {
-    var el = document.getElementById("gena-style-picker");
-    if (el) return el;
-    el = document.createElement("div");
-    el.id = "gena-style-picker";
-    el.className = "gena-style-picker gena-style-picker-hidden";
-    el.innerHTML =
-      '<div class="gena-style-picker-inner">' +
-      '<div class="gena-style-picker-title">Стиль презентации</div>' +
-      '<div class="gena-style-btns" id="gena-style-btns"></div>' +
-      '<button type="button" class="gena-style-cancel" id="gena-style-cancel">Закрыть</button>' +
-      "</div>";
-    document.body.appendChild(el);
-    document.getElementById("gena-style-cancel").addEventListener("click", hideStylePicker);
-    return el;
-  }
-
-  function hideStylePicker() {
-    var el = document.getElementById("gena-style-picker");
-    if (el) el.classList.add("gena-style-picker-hidden");
-  }
-
-  function showStylePicker(styles, promptPlain) {
-    var el = ensureStylePicker();
-    var box = document.getElementById("gena-style-btns");
-    if (!box) return;
-    box.innerHTML = "";
-    var list = styles && styles.length ? styles : [];
-    for (var i = 0; i < list.length; i++) {
-      (function (st) {
-        var btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "gena-style-btn";
-        var em = st.emoji ? st.emoji + " " : "";
-        btn.textContent = em + (st.label || st.id || "");
-        btn.addEventListener("click", function () {
-          submitStyleChoice(st.id, promptPlain);
-        });
-        box.appendChild(btn);
-      })(list[i]);
-    }
-    el.classList.remove("gena-style-picker-hidden");
   }
 
   /* ---------- SSE: прозрачный поток + извлечение delta.gena (построчно) ---------- */
@@ -455,11 +265,6 @@
     var d = ev.detail;
     if (!d || !d.type) return;
 
-    if (d.type === "presentation_style_prompt") {
-      showStylePicker(d.styles || [], d.prompt_plain || "");
-      return;
-    }
-
     if (d.type === "presentation_start") {
       showDock();
       resetDock();
@@ -582,14 +387,6 @@
     enhancePptxEmbeds(document.body);
   }
 
-  hookUserPromptCapture();
-  if (document.body) {
-    bootEmbeds();
-    bootStylePromptObserver();
-  } else {
-    document.addEventListener("DOMContentLoaded", function () {
-      bootEmbeds();
-      bootStylePromptObserver();
-    });
-  }
+  if (document.body) bootEmbeds();
+  else document.addEventListener("DOMContentLoaded", bootEmbeds);
 })();

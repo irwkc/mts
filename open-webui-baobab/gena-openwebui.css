@@ -42,67 +42,6 @@
   }
 }
 
-/* Панель выбора стиля презентации */
-#gena-style-picker {
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 999992;
-  max-width: min(560px, calc(100vw - 32px));
-}
-#gena-style-picker.gena-style-picker-hidden {
-  display: none;
-}
-#gena-style-picker .gena-style-picker-inner {
-  padding: 14px 16px 12px;
-  border-radius: 14px;
-  background: linear-gradient(165deg, #1a1a24 0%, #0f0f14 100%);
-  border: 1px solid rgba(99, 102, 241, 0.4);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
-}
-#gena-style-picker .gena-style-picker-title {
-  font-size: 12px;
-  color: #9ca3af;
-  margin-bottom: 10px;
-  font-family: ui-sans-serif, system-ui, sans-serif;
-}
-#gena-style-picker .gena-style-btns {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
-}
-#gena-style-picker .gena-style-btn {
-  border: 1px solid rgba(99, 102, 241, 0.45);
-  background: rgba(99, 102, 241, 0.12);
-  color: #e0e7ff;
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-size: 13px;
-  cursor: pointer;
-  font-family: ui-sans-serif, system-ui, sans-serif;
-  min-width: 120px;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-#gena-style-picker .gena-style-btn:hover {
-  background: rgba(99, 102, 241, 0.28);
-  border-color: rgba(165, 180, 252, 0.6);
-}
-#gena-style-picker .gena-style-cancel {
-  display: block;
-  margin: 12px auto 0;
-  border: none;
-  background: transparent;
-  color: #6b7280;
-  font-size: 12px;
-  cursor: pointer;
-  font-family: ui-sans-serif, system-ui, sans-serif;
-}
-#gena-style-picker .gena-style-cancel:hover {
-  color: #9ca3af;
-}
-
 /* Виджет стрима презентации (gena-openwebui.js) */
 #gena-presentation-dock {
   position: fixed;
