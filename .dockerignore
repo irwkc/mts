@@ -1,0 +1,16 @@
+# Контекст сборки Open WebUI из корня репозитория
+.git
+**/.git
+.gitignore
+
+# Кэши и артефакты (пересобираются в Docker)
+open-webui-src/node_modules
+open-webui-src/.svelte-kit
+open-webui-src/build
+gpthub-gateway/.venv
+gpthub-gateway/**/__pycache__
+
+# Тяжёлые локальные файлы, не нужные образам
+*.zip
+gena.zip
+Gemini_Generated_Image*.ico

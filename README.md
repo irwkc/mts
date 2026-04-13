@@ -10,7 +10,7 @@
 docker compose up -d --build
 ```
 
-**Open WebUI на машину не устанавливается:** в `docker-compose.yml` для него указан готовый образ `ghcr.io/open-webui/open-webui:main` — Docker только **скачивает** его при первом запуске. **Собирается** из исходников только контейнер **gpthub-gateway** (`./gpthub-gateway`).
+**Open WebUI** собирается из **`open-webui-src/`** (форк с интеграцией gena) и слоя BAOBAB: `docker compose` использует **`open-webui-baobab/Dockerfile`** с контекстом **корня репозитория**. На проде по умолчанию тянется готовый образ **`ghcr.io/irwkc/mts-open-webui-baobab:latest`** из GitHub Actions. Отдельно из исходников собирается **gpthub-gateway** (`./gpthub-gateway`).
 
 Чтобы в терминале было видно загрузку слоёв и шаги сборки (удобно на сервере по SSH):
 

@@ -35,4 +35,4 @@
 
 ## 9. Структурированный стрим (delta.gena) и Open WebUI
 В SSE каждого чанка совместимого с OpenAI допускается поле **`choices[0].delta.gena`** — JSON-события презентации (`presentation_start`, `phase`, `deck_structure`, `slide_image`, `presentation_complete`, `error`). Текст для чата по-прежнему в **`delta.content`**.
-Образ **open-webui-baobab** подключает **`gena-openwebui.js`**: перехват `fetch` на streaming `chat/completions`, парсинг `delta.gena` и док-панель справа (фазы, превью картинок по слайдам, ссылки после готовности).
+Шлюз и **форк Open WebUI** в **`open-webui-src/`** пробрасывают `delta.gena` через WebSocket (`chat:completion`); UI (док фаз, превью слайдов, индикатор «gena думает…», iframe PPTX) — **в исходниках Svelte**, без инжекта `gena-openwebui.js`. Образ **`mts-open-webui-baobab`** собирается из корня репозитория (`open-webui-baobab/Dockerfile`): фронт+бэкенд из `open-webui-src/`, поверх — только BAOBAB (splash, `custom.css`, иконки).

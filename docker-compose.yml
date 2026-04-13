@@ -48,7 +48,8 @@ services:
   open-webui:
     image: ${OPENWEBUI_IMAGE:-ghcr.io/irwkc/mts-open-webui-baobab:latest}
     build:
-      context: ./open-webui-baobab
+      context: .
+      dockerfile: open-webui-baobab/Dockerfile
     depends_on:
       gpthub-gateway:
         condition: service_healthy
