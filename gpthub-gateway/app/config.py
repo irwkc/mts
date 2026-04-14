@@ -220,9 +220,9 @@ class Settings(BaseSettings):
         validation_alias="GPTHUB_WEB_SEARCH_CACHE_MAX_ENTRIES",
     )
     max_chat_payload_chars: int = Field(
-        default=500_000,
+        default=2_000_000,
         validation_alias="GPTHUB_MAX_CHAT_PAYLOAD_CHARS",
-        description="Лимит размера тела chat/completions (JSON), защита от случайно огромных запросов",
+        description="Лимит размера тела chat/completions (JSON), защита от случайно огромных запросов; для VLM одно фото в base64 часто >500k символов",
     )
     gena_max_presentation_slides: int = Field(
         default=20,

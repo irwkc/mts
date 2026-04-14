@@ -34,7 +34,7 @@ flowchart LR
 
 - Повторы запросов к MWS при **429 / 5xx / таймауте** (`GPTHUB_MWS_HTTP_RETRIES`).
 - Кэш **веб-поиска** DDG по запросу (`GPTHUB_WEB_SEARCH_CACHE_TTL_SEC`).
-- Лимит размера тела **`/v1/chat/completions`** (`GPTHUB_MAX_CHAT_PAYLOAD_CHARS`).
+- Лимит размера тела **`/v1/chat/completions`** (`GPTHUB_MAX_CHAT_PAYLOAD_CHARS`, по умолчанию 2M символов JSON — одно фото в base64 из UI часто ~1–1.5M; при 413 поднимите переменную).
 - Логи: **X-Request-ID**, время ответа HTTP, лог перехватов gena (presentation / deep_research / music / image).
 - Сообщения об ошибках в стримах перехватов — человекочитаемые (таймаут, 429, 5xx).
 
