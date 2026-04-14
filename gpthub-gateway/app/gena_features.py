@@ -60,13 +60,61 @@ def _assistant_context_for_image_edit(messages: list[dict[str, Any]] | None) -> 
 # Перекраска / «покрась в …» — иначе diffusion путает цвет с новым объектом (фиолетовый → цветок вместо кота).
 _COLOR_ONLY_EDIT = re.compile(
     r"(?:"
+    r"(?:покрась|перекрась|покрасьте|раскрась)(?:\s+в\s+|\s+)(?:фиолетов|красн|син|зел[её]н|ж[её]лт|оранжев|розов|черн|бел)|"
     r"(?:покрась|перекрась|покрасьте|раскрась)\s+в\s+|"
+    r"в\s+фиолетов|фиолетов(?:ого|ый|ом|ую|ым|ые|ых)\s+цвет|"
+    r"сделай\s+(?:его|её|еще|ещё)?\s*(?:фиолетов|красн|син)|"
     r"поменяй\s+цвет|смени\s+цвет|"
-    r"\b(?:purple|violet|magenta|recolor|repaint)\b|"
-    r"change\s+(?:the\s+)?colou?r|tint\s+it"
+    r"поменяй\s+на\s+фиолетов|"
+    r"\b(?:purple|violet|magenta|recolor|repaint|recolou?r)\b|"
+    r"change\s+(?:the\s+)?colou?r|tint\s+it|make\s+it\s+(?:purple|violet|red|blue|green)"
     r")",
     re.I,
 )
+
+# «Утечка» в цветок/растение в англ. промпте при перекраске сцены с животным
+_FLORAL_LEAK = re.compile(
+    r"(?i)\b("
+    r"flower|flowers|floral|bouquet|bloom|blossom|orchid|tulip|rose|violet\s+flower|lavender\s+field|"
+    r"цветок|цветы|букет|растени|флора"
+    r")\b"
+)
+
+
+def _subject_en_hint_from_thread(messages: list[dict[str, Any]] | None) -> str:
+    """Краткое англ. имя субъекта из диалога (кот/собака/…), чтобы не терять при перекраске."""
+    if not messages:
+        return ""
+    parts: list[str] = []
+    for m in messages:
+        raw = _content_to_text(m.get("content"))
+        if raw:
+            parts.append(raw)
+    blob = "\n".join(parts).lower()
+    if re.search(r"\b(кот|кошка|котёнок|котенок|кота|коту|котом|коты|кошек)\b", blob):
+        return "cat"
+    if re.search(r"\b(cat|cats|kitten|kittens|feline)\b", blob):
+        return "cat"
+    if re.search(r"\b(собака|пёс|пес|щенок|собак)\b", blob):
+        return "dog"
+    if re.search(r"\b(dog|dogs|puppy|puppies|canine)\b", blob):
+        return "dog"
+    if re.search(r"\b(птиц|птица|bird|birds)\b", blob):
+        return "bird"
+    if re.search(r"\b(человек|портрет|лицо|мужчин|женщин|person|portrait|face|man|woman)\b", blob):
+        return "person"
+    return ""
+
+
+def _forced_color_edit_prompt(subject_en: str, user_text: str) -> str:
+    """Жёсткий промпт, если LLM всё равно генерит цветок вместо перекраски."""
+    ut = (user_text or "")[:800]
+    return (
+        f"Photorealistic {subject_en}, same animal and same pose as in the previous generated image, "
+        f"same framing and background style; ONLY recolor fur, skin, and lighting to match the user's color request. "
+        f"Absolutely no flowers, no plants, no bouquets, no floral patterns as the main subject. "
+        f"User instruction (preserve subject): {ut}"
+    )
 
 
 def _merge_basis_with_assistant_context(basis: str, messages: list[dict[str, Any]] | None) -> str:
@@ -387,6 +435,19 @@ async def prepare_image_generation_prompt(
         logger.exception("image prompt enhance")
     if prompt == user_text and basis != user_text:
         prompt = basis
+
+    # Перекраска: LLM часто подставляет цветок; при «утечке» или известном коте/собаке — жёсткий промпт.
+    if _color_only:
+        sh = _subject_en_hint_from_thread(messages)
+        p = (prompt or "").strip()
+        if sh:
+            if _FLORAL_LEAK.search(p) or not p:
+                prompt = _forced_color_edit_prompt(sh, user_text)
+            else:
+                prompt = (
+                    f"Same {sh} as in the reference image, identical composition, recolor only: {p}"
+                )[:4000]
+
     return model_id, prompt[:4000]
 
 
