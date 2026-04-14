@@ -50,8 +50,9 @@ html:not(.dark) body {
 	min-height: 100vh;
 }
 
-/* Splash: не чистый чёрный; логотип не «ломается» визуально при загрузке */
+/* Splash: тот же градиент, что и у приложения; поверх любых слоёв UI до снятия */
 #splash-screen {
+	z-index: 2147483000 !important;
 	background: linear-gradient(
 		165deg,
 		oklch(0.99 0.01 230) 0%,
@@ -68,9 +69,14 @@ html.dark #splash-screen {
 	) !important;
 }
 
-#splash-screen #logo,
+/* Тема «her» — фон задаётся в app.html; не перетираем */
+html.her #splash-screen {
+	background: #983724 !important;
+}
+
+#splash-screen #splash-logo,
 #splash-screen #logo-her {
 	object-fit: contain;
-	max-width: min(88vw, 18rem);
+	max-width: min(88vw, 20rem);
 	image-rendering: auto;
 }

@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
-"""Вставляет в собранный index.html только BAOBAB: splash-delay и custom.css (без gena-inject)."""
+"""Вставляет в собранный index.html BAOBAB: custom.css (без gena-inject). Сплэш — в app.html, без задержек."""
 from pathlib import Path
 
 
 def main() -> None:
-    splash = '<script src="/static/baobab-splash-delay.js"></script>'
     css = '<link rel="stylesheet" href="/static/custom.css" />'
     found = False
     for p in Path("/app/build").rglob("index.html"):
         found = True
         t = p.read_text(encoding="utf-8")
         orig = t
-        if splash not in t and "<head>" in t:
-            t = t.replace("<head>", "<head>" + splash, 1)
         if css not in t and "<head>" in t:
             t = t.replace("<head>", "<head>" + css, 1)
         if t != orig:

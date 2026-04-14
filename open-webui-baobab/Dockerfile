@@ -35,7 +35,6 @@ RUN npm run build
 
 # BAOBAB: статика и патч index.html (без gena-openwebui.js — логика в исходниках)
 COPY open-webui-baobab/custom.css /app/build/static/custom.css
-COPY open-webui-baobab/baobab-splash-delay.js /app/build/static/baobab-splash-delay.js
 COPY open-webui-baobab/assets/baobab-logo.png /tmp/baobab-logo.png
 COPY open-webui-baobab/scripts/inject_baobab_head.py /tmp/inject_baobab_head.py
 RUN apk add --no-cache python3 imagemagick \
@@ -163,7 +162,7 @@ COPY --chown=$UID:$GID --from=build /app/package.json /app/package.json
 COPY --chown=$UID:$GID open-webui-src/backend .
 
 RUN if [ -d /app/backend/open_webui/static ]; then \
-      for f in custom.css baobab-splash-delay.js favicon.ico favicon.png favicon-dark.png logo.png favicon-96x96.png \
+      for f in custom.css favicon.ico favicon.png favicon-dark.png logo.png favicon-96x96.png \
                apple-touch-icon.png splash.png splash-dark.png \
                web-app-manifest-192x192.png web-app-manifest-512x512.png; do \
         [ -f "/app/build/static/$f" ] && cp "/app/build/static/$f" "/app/backend/open_webui/static/$f"; \

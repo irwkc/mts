@@ -84,27 +84,6 @@
 						}
 					}
 				});
-				const isDarkMode = document.documentElement.classList.contains('dark');
-
-				const logo = document.createElement('img');
-				logo.id = 'logo';
-				logo.style =
-					'position: absolute; width: auto; height: 6rem; top: 44%; left: 50%; transform: translateX(-50%); display:block;';
-				logo.alt = '';
-				logo.src = isDarkMode ? '/static/splash-dark.png' : '/static/splash.png';
-				logo.onerror = function () {
-					this.onerror = null;
-					this.src = '/static/favicon.png';
-				};
-
-				document.addEventListener('DOMContentLoaded', function () {
-					const splash = document.getElementById('splash-screen');
-					if (document.documentElement.classList.contains('her')) {
-						return;
-					}
-
-					if (splash) splash.prepend(logo);
-				});
 			})();
 		</script>
 
@@ -116,69 +95,42 @@
 	<body data-sveltekit-preload-data="hover">
 		<div style="display: contents">%sveltekit.body%</div>
 
-		<div
-			id="splash-screen"
-			style="position: fixed; z-index: 100; top: 0; left: 0; width: 100%; height: 100%"
-		>
+		<div id="splash-screen">
 			<style type="text/css" nonce="">
 				html {
 					overflow-y: scroll !important;
 				}
 			</style>
 
-			<div
-				style="
-					position: absolute;
-					top: 33%;
-					left: 50%;
+			<img id="splash-logo" src="/static/splash.png" alt="" />
+			<script>
+				(function () {
+					var h = document.documentElement;
+					if (h.classList.contains('her')) return;
+					var el = document.getElementById('splash-logo');
+					if (!el) return;
+					el.src = h.classList.contains('dark') ? '/static/splash-dark.png' : '/static/splash.png';
+					el.onerror = function () {
+						this.onerror = null;
+						this.src = '/static/favicon.png';
+					};
+				})();
+			</script>
 
-					width: 24rem;
-					transform: translateX(-50%);
-
-					display: flex;
-					flex-direction: column;
-					align-items: center;
-				"
-			>
+			<div id="her-splash-wrap">
 				<img
 					id="logo-her"
-					style="width: auto; height: 13rem"
 					src="/static/splash.png"
 					alt=""
 					class="animate-pulse-fast"
 					onerror="this.onerror=null;this.src='/static/favicon.png'"
 				/>
 
-				<div style="position: relative; width: 24rem; margin-top: 0.5rem">
-					<div
-						id="progress-background"
-						style="
-							position: absolute;
-							width: 100%;
-							height: 0.75rem;
-
-							border-radius: 9999px;
-							background-color: #fafafa9a;
-						"
-					></div>
-
-					<div
-						id="progress-bar"
-						style="
-							position: absolute;
-							width: 0%;
-							height: 0.75rem;
-							border-radius: 9999px;
-							background-color: #fff;
-						"
-						class="bg-white"
-					></div>
+				<div id="her-progress-row">
+					<div id="progress-background"></div>
+					<div id="progress-bar" class="bg-white"></div>
 				</div>
 			</div>
-
-			<!-- <span style="position: absolute; bottom: 32px; left: 50%; margin: -36px 0 0 -36px">
-				Footer content
-			</span> -->
 		</div>
 	</body>
 
@@ -188,12 +140,52 @@
 			overscroll-behavior-y: none;
 		}
 
+		/* Фон сплэша переопределяется в /static/custom.css (BAOBAB). Здесь — только раскладка и z-index. */
 		#splash-screen {
-			background: #fff;
+			position: fixed;
+			z-index: 2147483000;
+			inset: 0;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			gap: 1rem;
+			box-sizing: border-box;
+			padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+				max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+			isolation: isolate;
 		}
 
-		html.dark #splash-screen {
-			background: #000;
+		#splash-logo {
+			width: auto;
+			height: clamp(4.5rem, 15vh, 7.5rem);
+			max-width: min(88vw, 20rem);
+			object-fit: contain;
+			display: none;
+			filter: drop-shadow(0 4px 24px rgba(0, 0, 0, 0.12));
+		}
+
+		html.dark #splash-logo {
+			filter: drop-shadow(0 4px 32px rgba(0, 0, 0, 0.45));
+		}
+
+		html:not(.her) #splash-logo {
+			display: block;
+		}
+
+		#her-splash-wrap {
+			display: none;
+			flex-direction: column;
+			align-items: center;
+			width: min(24rem, 100%);
+		}
+
+		html.her #splash-logo {
+			display: none;
+		}
+
+		html.her #her-splash-wrap {
+			display: flex;
 		}
 
 		html.her #splash-screen {
@@ -201,24 +193,36 @@
 		}
 
 		#logo-her {
-			display: none;
+			width: auto;
+			height: 13rem;
+			max-width: 100%;
+			object-fit: contain;
+			filter: invert(1);
+		}
+
+		#her-progress-row {
+			position: relative;
+			width: 100%;
+			margin-top: 0.5rem;
+			height: 0.75rem;
 		}
 
 		#progress-background {
 			display: none;
+			position: absolute;
+			width: 100%;
+			height: 0.75rem;
+			border-radius: 9999px;
+			background-color: #fafafa9a;
 		}
 
 		#progress-bar {
 			display: none;
-		}
-
-		html.her #logo {
-			display: none;
-		}
-
-		html.her #logo-her {
-			display: block;
-			filter: invert(1);
+			position: absolute;
+			width: 0%;
+			height: 0.75rem;
+			border-radius: 9999px;
+			background-color: #fff;
 		}
 
 		html.her #progress-background {

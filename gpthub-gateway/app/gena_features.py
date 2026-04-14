@@ -15,7 +15,7 @@ import httpx
 from fastapi import Request
 
 from app.config import settings
-from app.image_utils import image_api_response_to_sse_href
+from app.image_utils import image_api_response_to_sse_href, stored_image_file_is_valid
 from app.presentation_pptx import (
     build_colorful_pptx,
     normalize_slide_rows_for_images,
@@ -44,6 +44,32 @@ from app.web_tools import (
 logger = logging.getLogger("gpthub.gena")
 
 _MD_IMG_URL = re.compile(r"!\[[^\]]*\]\((https?://[^)\s]+)\)")
+_DATA_URL_IN_TEXT = re.compile(r"data:image/[^;]+;base64,[A-Za-z0-9+/=\s]{200,}", re.I)
+
+
+def _assistant_context_for_image_edit(messages: list[dict[str, Any]] | None) -> str:
+    """Текст последнего ответа ассистента без base64 — иначе LLM не видит «кота», только новую просьбу «добавь флаг»."""
+    raw = _last_assistant_content(messages or [])
+    if not raw.strip():
+        return ""
+    s = re.sub(r"!\[([^\]]*)\]\([^)]+\)", lambda m: f"[image: {m.group(1).strip() or 'generated'}]", raw)
+    s = _DATA_URL_IN_TEXT.sub("[image]", s)
+    return s.strip()[:12000]
+
+
+def _merge_basis_with_assistant_context(basis: str, messages: list[dict[str, Any]] | None) -> str:
+    if "--- Assistant message ---" in basis or basis.strip().startswith("The user agreed to generate"):
+        return basis[:12000]
+    ctx = _assistant_context_for_image_edit(messages)
+    if not ctx:
+        return basis[:12000]
+    return (
+        "Previous assistant message — keep ALL main subjects and setting from here in your prompt "
+        "(e.g. the same animal, person, style), then apply the user's addition:\n"
+        f"{ctx}\n\n"
+        f"User request:\n{basis[:8000]}"
+    )[:14000]
+
 
 # Правки сцены после картинки ассистента. Без слишком коротких токенов («картин», «исправ») —
 # иначе ловится обычный текст в чате.
@@ -249,6 +275,7 @@ async def prepare_image_generation_prompt(
                 model_id = c
                 break
     basis = _effective_user_text_for_image_prompt(user_text, messages)
+    enriched = _merge_basis_with_assistant_context(basis, messages)
     prompt = user_text
     try:
         if image_refs:
@@ -261,11 +288,12 @@ async def prepare_image_generation_prompt(
                             "role": "system",
                             "content": (
                                 "You write ONE English prompt for a text-to-image diffusion model. "
-                                "The user is editing a previous image; the URLs show what was already generated. "
-                                "If they ask to ADD an object, person, or animal, merge it into the SAME scene: "
-                                "keep the existing subjects and style unless they asked to remove or replace something. "
-                                "Describe one unified image (e.g. elephant and bird together in one shot). "
-                                "For color/style tweaks, describe the full scene with the change applied. "
+                                "The user is editing a previous image; reference URLs show what was generated. "
+                                "Rules: (1) If they ask to ADD a flag, hat, object, or accessory, the MAIN subject "
+                                "from before (cat, dog, person, etc.) MUST still appear in your prompt — never "
+                                "output a prompt that only describes the new item alone. "
+                                "(2) Merge into ONE scene: same subject(s) + the new element (e.g. cat with Ukrainian flag). "
+                                "(3) Keep style and composition unless they asked to change only style. "
                                 "Do not output URLs or markdown. Output ONLY the prompt."
                             ),
                         },
@@ -274,7 +302,7 @@ async def prepare_image_generation_prompt(
                             "content": (
                                 "Reference image URL(s) from the previous assistant message:\n"
                                 + "\n".join(f"- {u}" for u in image_refs)
-                                + f"\n\nUser instruction (any language):\n{basis[:3000]}"
+                                + f"\n\n{enriched[:12000]}"
                             ),
                         },
                     ],
@@ -292,15 +320,14 @@ async def prepare_image_generation_prompt(
                             "role": "system",
                             "content": (
                                 "You write ONE English prompt for a text-to-image diffusion model. "
-                                "The previous assistant message already contained a generated image. "
-                                "The user asks for a revision or to ADD something. "
-                                "If they add an element, describe ONE scene that includes BOTH the previous "
-                                "content and the new element together (same style, coherent composition). "
-                                "Do not drop the original subject unless they asked to remove it. "
+                                "The chat already showed a generated image; the text below may describe the scene. "
+                                "If the user adds a flag, object, or detail, your prompt MUST include BOTH the "
+                                "original main subject (e.g. the same cat) AND the new element — never only the flag "
+                                "or only the new object. One coherent scene. "
                                 "Do not mention chat or URLs. Output ONLY the prompt."
                             ),
                         },
-                        {"role": "user", "content": basis[:3000]},
+                        {"role": "user", "content": enriched[:12000]},
                     ],
                     "max_tokens": 700,
                     "temperature": 0.35,
@@ -796,16 +823,22 @@ async def stream_image_markdown(
                 raise
 
         href = await image_api_response_to_sse_href(img_resp, settings.data_dir)
+        if href.startswith("static/") and not stored_image_file_is_valid(settings.data_dir, href):
+            href = ""
         if href.startswith("http://") or href.startswith("https://"):
             display = href
         elif href.startswith("static/"):
             display = public_static_url(request, href)
         else:
             display = href
-        if display:
-            yield sse_delta(f"![Изображение]({display})\n\n")
+        disp = (display or "").strip()
+        if disp:
+            yield sse_delta(f"![Изображение]({disp})\n\n")
         else:
-            yield sse_delta("Не удалось получить ссылку на изображение.\n\n")
+            yield sse_delta(
+                "**Не удалось получить изображение** (пустой или повреждённый ответ). "
+                "Попробуйте ещё раз или сформулируйте запрос иначе.\n\n"
+            )
     except Exception as e:
         logger.exception("stream_image")
         yield sse_delta(f"**Ошибка генерации изображения.** {friendly_stream_error(e)}\n\n")
