@@ -2,7 +2,7 @@
 
 Как устроено в целом: **браузер → Open WebUI** (`:3000`) → **GPTHub Gateway** (`/v1/*`, в compose с хоста `:8081`) → **MWS GPT**. Режим **`gpthub-auto`** включает роутер gena (перехваты: презентация, картинка, deep research, музыка и т.д.) и эвристики выбора модели. Ручной выбор модели из списка — шлюз **не подменяет** `model`.
 
-Перед проверками: `docker compose ps` (шлюз **healthy**), в `.env` актуальный **`MWS_API_KEY`**, для картинок/PPTX в чате — **`GPTHUB_PUBLIC_BASE_URL`** (локально часто `http://127.0.0.1:8081`). Модель в UI: **`gpthub-auto`**, кроме шага про ручной выбор.
+Перед проверками: `docker compose ps` (шлюз **healthy**), в `.env` актуальный **`MWS_API_KEY`**. Картинки/PPTX за nginx: **`GPTHUB_PUBLIC_BASE_URL`** можно не задавать (относительные URL); локально без nginx — `http://127.0.0.1:8081` в `.env`. Модель в UI: **`gpthub-auto`**, кроме шага про ручной выбор.
 
 Отмечайте: **ОК** / **не ОК** и кратко что увидели (ошибка, пустой ответ, нет картинки).
 
@@ -176,5 +176,5 @@
 
 1. `docker compose logs gpthub-gateway --tail=80` — ошибки MWS, 401, таймауты.  
 2. Совпадение id моделей с `GET /v1/models`: [MWS_TEAM_MODELS.md](MWS_TEAM_MODELS.md).  
-3. Картинки в чате: `GPTHUB_PUBLIC_BASE_URL`, nginx `location /static/` → шлюз.  
+3. Картинки в чате: пустой `GPTHUB_PUBLIC_BASE_URL` + nginx `location /static/` → шлюз; локально — явный `http://127.0.0.1:8081`.  
 4. Голос EN: `GPTHUB_ASR_DEFAULT_LANGUAGE` пусто для авто; `ru` только если нужен стабильный русский.

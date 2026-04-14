@@ -15,7 +15,7 @@
 | `GPTHUB_GENA_CODE_MODEL` | Код | `qwen3-coder-480b-a35b` |
 | `GPTHUB_GENA_LONG_DOC_MODEL` | Длинные документы | `cotype-pro-vl-32b` |
 | `IMAGE_GEN_MODEL` | Генерация картинок | `qwen-image` |
-| `GPTHUB_PUBLIC_BASE_URL` | Абсолютные URL к `/static/` в чате (сгенерированные картинки, файлы) | в compose по умолчанию `http://127.0.0.1:8081`; на проде — `https://ваш-домен` |
+| `GPTHUB_PUBLIC_BASE_URL` | Абсолютные URL к `/static/` в чате (сгенерированные картинки, файлы) | по умолчанию пусто → относительные `/static/...`; локально без nginx — `http://127.0.0.1:8081`; при необходимости явно `https://ваш-домен` |
 | `GPTHUB_ASR_DEFAULT_LANGUAGE` | Язык Whisper, если клиент не передал `language` | пусто = авто (лучше для English); `ru` — стабильнее для русской речи |
 
 Полный список см. [.env.example](../.env.example) и [MODELS.md](MODELS.md).
