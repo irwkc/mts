@@ -10,7 +10,7 @@ python -m pip install -r requirements.txt -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-CI: пример workflow — [github-workflow-gpthub-pytest.yml.example](github-workflow-gpthub-pytest.yml.example) (скопировать в `.github/workflows/gpthub-pytest.yml`; push такого файла из автоматики требует GitHub PAT с scope **workflow**).
+CI: инструкция и готовый YAML — [CI.md](CI.md) (файл в репозитории: `.github/workflows/gpthub-pytest.yml`; при отказе push см. раздел в CI.md).
 
 ## Соответствие ТЗ 1–15
 
