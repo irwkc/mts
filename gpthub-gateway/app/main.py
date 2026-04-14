@@ -635,8 +635,18 @@ async def maybe_image_generation_chat(
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request) -> Response:
     body = await request.json()
+    if not isinstance(body, dict):
+        return JSONResponse(
+            {
+                "error": {
+                    "message": "Expected a JSON object with messages, model, etc.",
+                    "type": "invalid_request_error",
+                }
+            },
+            status_code=400,
+        )
     rid = str(getattr(request.state, "request_id", "") or "")[:24] or "?"
-    if isinstance(body, dict):
+    try:
         logger.info(
             "chat begin rid=%s model=%r stream=%s n_messages=%s",
             rid,
@@ -645,6 +655,8 @@ async def chat_completions(request: Request) -> Response:
             len(body.get("messages") or []),
         )
         log_chat_json(logger, "request_in", rid, body, settings.log_json_max_chars)
+    except Exception as log_ex:
+        logger.warning("chat request log failed (non-fatal): %s", log_ex, exc_info=True)
     try:
         plen = len(json.dumps(body, ensure_ascii=False))
     except Exception:
@@ -791,7 +803,10 @@ async def chat_completions(request: Request) -> Response:
     new_body["messages"] = messages
 
     _to_mws = {**new_body, "stream": stream}
-    log_chat_json(logger, "to_mws", rid, _to_mws, settings.log_json_max_chars)
+    try:
+        log_chat_json(logger, "to_mws", rid, _to_mws, settings.log_json_max_chars)
+    except Exception as log_ex:
+        logger.warning("chat to_mws log failed (non-fatal): %s", log_ex, exc_info=True)
 
     # логика памяти после ответа — только если не stream (ниже для stream буферизуем)
     if not stream:

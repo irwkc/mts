@@ -56,7 +56,10 @@ def format_json_for_log(obj: Any, max_chars: int) -> str:
     if max_chars <= 0:
         return "(logging disabled: GPTHUB_LOG_JSON_MAX_CHARS=0)"
     try:
-        safe = redact_for_log(copy.deepcopy(obj))
+        try:
+            safe = redact_for_log(copy.deepcopy(obj))
+        except Exception as e:
+            safe = f"<deepcopy/redact failed: {e}>"
         text = json.dumps(safe, ensure_ascii=False, indent=2)
     except Exception as e:
         return f"<json serialize failed: {e}>"
