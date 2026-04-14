@@ -137,6 +137,10 @@ def _coerce_available_model(preferred: str, available_ids: set[str]) -> str:
     ):
         if alt and alt in available_ids:
             return alt
+    skip = settings.router_skip_model_ids() | {settings.auto_model_id}
+    for x in sorted(available_ids):
+        if x not in skip:
+            return x
     for x in sorted(available_ids):
         if x != settings.auto_model_id:
             return x
@@ -280,10 +284,9 @@ def try_fast_path_default_llm_for_simple_turn(
     dm = settings.default_llm
     if dm in available_ids:
         return (dm, "auto:simple_chat")
-    for x in sorted(available_ids):
-        if x != settings.auto_model_id:
-            return (x, "auto:simple_chat")
-    return None
+    # Тот же fallback, что и везде в gena: не брать «первую по алфавиту» (часто bge-m3 → пустой чат).
+    coerced = _coerce_available_model(dm, available_ids)
+    return (coerced, "auto:simple_chat")
 
 
 def pick_route_deterministic(

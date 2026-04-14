@@ -122,6 +122,18 @@ def test_try_fast_path_simple_chat(router_settings):
     )
 
 
+def test_try_fast_path_never_picks_embedding_catalog(router_settings):
+    """Если DEFAULT_LLM нет в каталоге ключа, не брать bge-m3 первой по алфавиту (пустой чат в UI)."""
+    ids = {"gpthub-auto", "bge-m3", "cotype-pro-vl-32b"}
+    r = rl.try_fast_path_default_llm_for_simple_turn(
+        [{"role": "user", "content": "привет"}],
+        ids,
+    )
+    assert r is not None
+    assert r[0] != "bge-m3"
+    assert r[0] == "cotype-pro-vl-32b"
+
+
 def test_inject_router_debug():
     out = rl.inject_router_debug(
         [{"role": "system", "content": "sys"}],

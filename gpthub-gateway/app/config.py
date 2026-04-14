@@ -108,6 +108,19 @@ class Settings(BaseSettings):
         validation_alias="GPTHUB_ASR_DEFAULT_LANGUAGE",
     )
     embedding_model: str = "bge-m3"
+    # id через запятую: не использовать как fallback для chat/completions (иначе пустые ответы в UI).
+    # См. docs/MWS_TEAM_MODELS.md — при ограниченном каталоге первой по алфавиту могла оказаться bge-m3.
+    non_chat_model_ids: str = Field(
+        default="bge-m3",
+        validation_alias="GPTHUB_NON_CHAT_MODEL_IDS",
+    )
+
+    def router_skip_model_ids(self) -> frozenset[str]:
+        ids = {x.strip() for x in (self.non_chat_model_ids or "").split(",") if x.strip()}
+        em = (self.embedding_model or "").strip()
+        if em:
+            ids.add(em)
+        return frozenset(ids)
 
     memory_top_k: int = 8
     rag_top_k: int = 5
