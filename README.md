@@ -40,9 +40,20 @@ bash scripts/compose-up-verbose.sh
 
 ## Деплой через GitHub Actions
 
-При push в `main` workflow **собирает** образ `gpthub-gateway` на раннере GitHub (с [кэшем Docker BuildKit `gha`](https://docs.docker.com/build/ci/github-actions/cache/)), пушит в **GHCR** `ghcr.io/irwkc/mts-gpthub-gateway:latest`, затем по SSH на сервере: `git pull`, `docker compose pull`, `docker compose up -d --no-build`, nginx. Сборка на сервере не выполняется.
+При push в `main` workflow **собирает** образы при изменении путей (`gpthub-gateway/**`, `open-webui-*`), пушит в **GHCR**, затем по SSH на сервере: `git fetch` / `reset --hard origin/main`, `docker compose pull`, `docker compose up -d --force-recreate`, nginx. См. [.github/workflows/deploy.yml](.github/workflows/deploy.yml).
 
-Пакет в GitHub Packages для этого образа должен быть **Public**, либо на сервере настроен `docker login ghcr.io`.
+Пакет в GitHub Packages для образов должен быть **Public**, либо на сервере настроен `docker login ghcr.io`.
+
+### Секреты репозитория (Actions)
+
+| Секрет | Назначение |
+|--------|------------|
+| `SSH_HOST` | IP или hostname сервера |
+| `SSH_USER` | Логин SSH — **должен совпадать** с учётной записью на сервере (после переименования пользователя обновите секрет) |
+| `SSH_PASSWORD` | Пароль для входа по SSH; вставляйте без кавычек и без лишнего пробела/переноса в конце |
+Если на сервере **отключён** вход по паролю (`PasswordAuthentication no`), в workflow вместо `password:` задайте `key: ${{ secrets.SSH_PRIVATE_KEY }}` (содержимое приватного ключа PEM) и **уберите** строку с `password:` — в `appleboy/ssh-action` нельзя указывать оба способа сразу.
+
+Если job **deploy** падает с `ssh: unable to authenticate, attempted methods [none password]`: проверьте `SSH_USER` (должен совпадать с логином на сервере) и `SSH_PASSWORD`; зайдите с машины командой `ssh "$SSH_USER@$SSH_HOST"` с теми же данными. Убедитесь, что в секрете нет лишнего пробела или переноса строки в конце пароля.
 
 Если в Open WebUI по-прежнему пустой список моделей после смены настроек, один раз пересоздайте контейнер (`docker compose up -d --force-recreate`) или удалите том `open-webui-data` (удалит локальные чаты).
 

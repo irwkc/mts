@@ -1,5 +1,12 @@
 # Сборка образа gpthub-gateway в Actions (кэш BuildKit GHA) → push в GHCR → на сервере только pull + up.
-# Секреты: SSH_HOST, SSH_USER, SSH_PASSWORD
+#
+# Секреты (Settings → Secrets and variables → Actions):
+#   SSH_HOST     — IP или hostname сервера
+#   SSH_USER     — логин Linux, тот же что для ручного ssh (если переименовали пользователя — обновите секрет)
+#   SSH_PASSWORD — пароль; без кавычек и без лишнего переноса строки в конце
+# Ошибка deploy: «handshake failed … password» — неверные SSH_USER/SSH_PASSWORD или парольный вход запрещён sshd.
+# Ключ вместо пароля: appleboy/ssh-action принимает либо password, либо key (не оба) — см. README.
+#
 # Пакет ghcr.io/.../gpthub-gateway должен быть Public или на сервере: docker login ghcr.io
 #
 # Open WebUI (~7 min npm+build) и gateway собираются только если менялись соответствующие пути.
