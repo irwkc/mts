@@ -14,7 +14,14 @@ class TestAuths(AbstractPostgresTest):
         cls.auths = Auths
 
     def test_get_session_user(self):
-        with mock_webui_user():
+        self.users.insert_new_user(
+            id='1',
+            name='John Doe',
+            email='john.doe@openwebui.com',
+            profile_image_url='/user.png',
+            role='user',
+        )
+        with mock_webui_user(id='1'):
             response = self.fast_api_client.get(self.create_url(''))
         assert response.status_code == 200
         assert response.json() == {
@@ -113,7 +120,14 @@ class TestAuths(AbstractPostgresTest):
         assert data['token_type'] == 'Bearer'
 
     def test_add_user(self):
-        with mock_webui_user():
+        self.users.insert_new_user(
+            id='3',
+            name='Admin',
+            email='admin3@test.com',
+            profile_image_url='/user.png',
+            role='admin',
+        )
+        with mock_webui_user(id='3'):
             response = self.fast_api_client.post(
                 self.create_url('/add'),
                 json={
@@ -134,14 +148,14 @@ class TestAuths(AbstractPostgresTest):
         assert data['token_type'] == 'Bearer'
 
     def test_get_admin_details(self):
-        self.auths.insert_new_auth(
+        user = self.auths.insert_new_auth(
             email='john.doe@openwebui.com',
             password='password',
             name='John Doe',
             profile_image_url='/user.png',
             role='admin',
         )
-        with mock_webui_user():
+        with mock_webui_user(id=user.id):
             response = self.fast_api_client.get(self.create_url('/admin/details'))
 
         assert response.status_code == 200

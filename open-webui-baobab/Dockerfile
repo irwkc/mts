@@ -15,7 +15,8 @@ ARG UID=0
 ARG GID=0
 
 ######## Frontend: open-webui-src + BAOBAB overlay ########
-FROM --platform=$BUILDPLATFORM node:22-alpine3.20 AS build
+# Без BuildKit BUILDPLATFORM бывает пустым — локальный compose падает. Для кросс-сборки: docker buildx build --platform=...
+FROM node:22-alpine3.20 AS build
 ARG BUILD_HASH
 
 WORKDIR /app

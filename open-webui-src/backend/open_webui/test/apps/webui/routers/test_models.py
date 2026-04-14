@@ -8,8 +8,20 @@ class TestModels(AbstractPostgresTest):
     def setup_class(cls):
         super().setup_class()
         from open_webui.models.models import Model
+        from open_webui.models.users import Users
 
         cls.models = Model
+        cls.users = Users
+
+    def setup_method(self):
+        super().setup_method()
+        self.users.insert_new_user(
+            id='2',
+            name='user 2',
+            email='user2@openwebui.com',
+            profile_image_url='/user2.png',
+            role='user',
+        )
 
     def test_models(self):
         with mock_webui_user(id='2'):

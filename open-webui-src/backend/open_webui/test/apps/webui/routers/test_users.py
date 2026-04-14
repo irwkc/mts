@@ -45,6 +45,13 @@ class TestUsers(AbstractPostgresTest):
             profile_image_url='/user2.png',
             role='user',
         )
+        self.users.insert_new_user(
+            id='3',
+            name='user 3',
+            email='user3@openwebui.com',
+            profile_image_url='/user3.png',
+            role='admin',
+        )
 
     def test_users(self):
         # Get all users

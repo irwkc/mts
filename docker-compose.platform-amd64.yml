@@ -1,0 +1,11 @@
+# Подключать на Apple Silicon, если образы GHCR только linux/amd64:
+#   docker-compose -f docker-compose.yml -f docker-compose.platform-amd64.yml pull
+#   docker-compose -f docker-compose.yml -f docker-compose.platform-amd64.yml up -d --no-build
+#
+# На сервере amd64 этот файл не нужен.
+
+services:
+  gpthub-gateway:
+    platform: linux/amd64
+  open-webui:
+    platform: linux/amd64

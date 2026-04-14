@@ -79,10 +79,11 @@ SEARCH_RE = re.compile(
     re.I,
 )
 URL_RE = re.compile(r"https?://[^\s)]+", re.I)
-# «Глубокое исследование» — пусть решает нейро-роутер / полный анализ текста
+# «Глубокое исследование» — совпадает с web_tools.DEEP_RESEARCH_RE (быстрый путь не глушит ресерч)
 _DEEP_RESEARCH_HINT = re.compile(
-    r"(deep\s+research|глубок(ое|ий)\s+исследован|многошагов(ый|ого)\s+поиск|"
-    r"iterative\s+search|исследуй\s+тему)",
+    r"(deep\s+research|глубок(ое|ий)\s+исследован|глубокий\s+поиск|"
+    r"многошагов(ый|ого)\s+поиск|iterative\s+search|исследуй\s+тему|"
+    r"проанализируй\s+вс[её]\s+в\s+интернет|сделай\s+ресерч|сделай\s+рисерч)",
     re.I,
 )
 
@@ -180,6 +181,10 @@ def pick_route_gena(
     if _GENA_CODE_KEYWORDS.search(user_texts):
         mid = _coerce_available_model(settings.gena_code_model, available_ids)
         return mid, "gena:code"
+
+    fp = try_fast_path_default_llm_for_simple_turn(messages, available_ids)
+    if fp is not None:
+        return fp
 
     mid = _coerce_available_model(gena_chat_target(), available_ids)
     return mid, "gena:chat"
