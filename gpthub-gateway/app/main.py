@@ -42,6 +42,7 @@ from app.memory_context import (
     maybe_compress_messages_for_context,
 )
 from app.memory_store import MemoryStore
+from app.log_sanitize import log_chat_json
 from app.music_demo import (
     build_mp3_from_prompt,
     melody_notes_from_llm,
@@ -634,6 +635,16 @@ async def maybe_image_generation_chat(
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request) -> Response:
     body = await request.json()
+    rid = str(getattr(request.state, "request_id", "") or "")[:24] or "?"
+    if isinstance(body, dict):
+        logger.info(
+            "chat begin rid=%s model=%r stream=%s n_messages=%s",
+            rid,
+            body.get("model"),
+            body.get("stream"),
+            len(body.get("messages") or []),
+        )
+        log_chat_json(logger, "request_in", rid, body, settings.log_json_max_chars)
     try:
         plen = len(json.dumps(body, ensure_ascii=False))
     except Exception:
@@ -779,10 +790,15 @@ async def chat_completions(request: Request) -> Response:
     new_body["model"] = resolved_model
     new_body["messages"] = messages
 
+    _to_mws = {**new_body, "stream": stream}
+    log_chat_json(logger, "to_mws", rid, _to_mws, settings.log_json_max_chars)
+
     # логика памяти после ответа — только если не stream (ниже для stream буферизуем)
     if not stream:
         try:
-            out = await _client.post_json("/chat/completions", new_body)
+            out = await _client.post_json(
+                "/chat/completions", new_body, log_context=f"rid={rid}"
+            )
         except httpx.HTTPStatusError as e:
             return JSONResponse(
                 {"error": {"message": e.response.text, "type": "upstream_error"}},
@@ -824,7 +840,15 @@ async def chat_completions(request: Request) -> Response:
             ) as resp:
                 if resp.status_code >= 400:
                     err = await resp.aread()
-                    yield f"data: {json.dumps({'error': {'message': err.decode()}})}\n\n"
+                    err_text = err.decode(errors="replace")
+                    ec = max(500, int(settings.log_upstream_error_chars))
+                    logger.error(
+                        "MWS stream /chat/completions rid=%s HTTP %s\nbody:\n%s",
+                        rid,
+                        resp.status_code,
+                        err_text[:ec] or "(empty)",
+                    )
+                    yield f"data: {json.dumps({'error': {'message': err_text}})}\n\n"
                     return
                 async for line in resp.aiter_lines():
                     if not line:

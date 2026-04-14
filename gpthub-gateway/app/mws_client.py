@@ -54,8 +54,16 @@ class MWSClient:
         assert last is not None
         raise last
 
-    async def post_json(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def post_json(
+        self,
+        path: str,
+        body: dict[str, Any],
+        *,
+        log_context: str = "",
+    ) -> dict[str, Any]:
         last: Optional[BaseException] = None
+        err_chars = max(500, int(settings.log_upstream_error_chars))
+        ctx = f"{log_context} " if log_context else ""
         for attempt in range(self._retries + 1):
             try:
                 async with httpx.AsyncClient(timeout=300.0) as client:
@@ -66,12 +74,43 @@ class MWSClient:
                     )
                     r.raise_for_status()
                     return r.json()
-            except Exception as e:
+            except httpx.HTTPStatusError as e:
                 last = e
+                txt = (e.response.text or "")[:err_chars]
+                logger.error(
+                    "MWS POST %s%s-> HTTP %s (attempt %s/%s)\nresponse body:\n%s",
+                    ctx,
+                    path,
+                    e.response.status_code,
+                    attempt + 1,
+                    self._retries + 1,
+                    txt or "(empty body)",
+                )
                 if not self._should_retry(e) or attempt >= self._retries:
                     raise
                 logger.warning(
-                    "post_json %s retry %s/%s: %s",
+                    "post_json %s retry %s/%s after HTTP error",
+                    path,
+                    attempt + 1,
+                    self._retries + 1,
+                )
+                await asyncio.sleep(self._backoff * (attempt + 1))
+            except Exception as e:
+                last = e
+                if not self._should_retry(e) or attempt >= self._retries:
+                    logger.error(
+                        "MWS POST %s%s failed (final, attempt %s/%s): %s",
+                        ctx,
+                        path,
+                        attempt + 1,
+                        self._retries + 1,
+                        e,
+                        exc_info=not isinstance(e, httpx.HTTPStatusError),
+                    )
+                    raise
+                logger.warning(
+                    "post_json %s%s retry %s/%s: %s",
+                    ctx,
                     path,
                     attempt + 1,
                     self._retries + 1,

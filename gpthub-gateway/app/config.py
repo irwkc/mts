@@ -37,6 +37,26 @@ class Settings(BaseSettings):
             return s
         return "INFO"
 
+    log_json_max_chars: int = Field(
+        default=16_000,
+        validation_alias="GPTHUB_LOG_JSON_MAX_CHARS",
+        description="Санитизированный JSON тел в логах chat (0 = только одна строка-сводка без тела)",
+    )
+    log_upstream_error_chars: int = Field(
+        default=8_000,
+        validation_alias="GPTHUB_LOG_UPSTREAM_ERROR_CHARS",
+        description="Макс. символов тела ответа MWS при ошибке (4xx/5xx)",
+    )
+
+    @field_validator("log_json_max_chars", "log_upstream_error_chars", mode="before")
+    @classmethod
+    def non_negative_log_int(cls, v: object) -> int:
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            return 0
+        return max(0, n)
+
     # Router / defaults (override via env after GET /v1/models on real deployment)
     auto_model_id: str = "gpthub-auto"
     # Отображаемое имя авто-модели в UI (список моделей Open WebUI)
