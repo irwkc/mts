@@ -1,12 +1,24 @@
 #!/usr/bin/env bash
 # Включает автозапуск Docker и стека MTS после перезагрузки ВМ.
 # Запуск: sudo bash scripts/install-boot-autostart.sh
-# Каталог проекта на сервере по умолчанию: /home/ubuntuuser/mts
+# Каталог проекта: задайте MTS_HOME или положите репозиторий в одном из типичных путей ниже.
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# Каталог с docker-compose.yml и .env на сервере (при другом пользователе: MTS_HOME=/home/ubuntu/mts)
+# Деплой из Actions передаёт MTS_HOME=$(pwd). Иначе ищем docker-compose.yml у типичных пользователей.
+if [[ -z "${MTS_HOME:-}" ]]; then
+  for d in /home/irwkc/mts /home/ubuntuuser/mts /root/mts; do
+    if [[ -f "$d/docker-compose.yml" ]]; then
+      MTS_HOME="$d"
+      break
+    fi
+  done
+fi
 MTS_HOME="${MTS_HOME:-/home/ubuntuuser/mts}"
+if [[ ! -f "$MTS_HOME/docker-compose.yml" ]]; then
+  echo "Не найден docker-compose.yml в MTS_HOME=$MTS_HOME — задайте MTS_HOME вручную." >&2
+  exit 1
+fi
 UNIT_SRC="$ROOT/deploy/mts-docker.service"
 UNIT_DST="/etc/systemd/system/mts-docker.service"
 

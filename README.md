@@ -59,7 +59,7 @@ bash scripts/compose-up-verbose.sh
 
 ### Автозапуск после перезагрузки сервера
 
-Юнит **systemd** `mts-docker.service` выполняет `docker compose up -d` при загрузке (после `docker.service`). Установка: `sudo bash scripts/install-boot-autostart.sh` из `~/mts` (или `MTS_HOME=/path/to/mts sudo -E bash scripts/install-boot-autostart.sh`). Включены также `docker` и при наличии **nginx**. Деплой через Actions вызывает этот скрипт автоматически.
+Юнит **systemd** `mts-docker.service` выполняет `docker compose up -d` при загрузке (после `docker.service`). Установка вручную из каталога с `docker-compose.yml`: `sudo env MTS_HOME="$(pwd)" bash scripts/install-boot-autostart.sh` (скрипт сам ищет `/home/irwkc/mts` или `/home/ubuntuuser/mts`, если `MTS_HOME` не задан). Деплой через Actions передаёт `MTS_HOME="$(pwd)"` автоматически. Включены также `docker` и при наличии **nginx**.
 
 ## Структура
 
