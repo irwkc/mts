@@ -23,6 +23,7 @@ from app.image_utils import image_api_response_to_data_url
 from app.chroma_store import recall_block as chroma_recall_block, save_message as chroma_save_message
 from app.gena_features import (
     public_static_url,
+    post_images_with_optional_reference,
     prepare_image_generation_prompt,
     should_stream_deep_gena,
     should_stream_image_gena,
@@ -430,6 +431,19 @@ async def images(request: Request) -> Response:
         )
 
 
+@app.post("/v1/images/edits")
+async def images_edits(request: Request) -> Response:
+    body = await request.json()
+    try:
+        out = await _client.post_json("/images/edits", body)
+        return JSONResponse(out)
+    except httpx.HTTPStatusError as e:
+        return JSONResponse(
+            {"error": {"message": e.response.text, "type": "upstream_error"}},
+            status_code=e.response.status_code,
+        )
+
+
 @app.post("/v1/audio/speech")
 async def audio_speech(request: Request) -> Response:
     """TTS (голос ответа); прокси на MWS. Если endpoint недоступен — 502."""
@@ -522,14 +536,9 @@ async def maybe_image_generation_chat(
         model_id, final_prompt = await prepare_image_generation_prompt(
             _client, text, messages, ids, requested_model
         )
-        img_body = {
-            "model": model_id,
-            "prompt": final_prompt,
-            "n": 1,
-            "size": "1024x1024",
-            "response_format": "b64_json",  # сразу base64, не URL
-        }
-        img_resp = await _client.post_json("/images/generations", img_body)
+        img_resp = await post_images_with_optional_reference(
+            _client, model_id, final_prompt, text, messages
+        )
     except Exception as e:
         logger.warning("image gen failed: %s", e)
         return None

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
@@ -15,7 +16,11 @@ import httpx
 from fastapi import Request
 
 from app.config import settings
-from app.image_utils import image_api_response_to_sse_href, stored_image_file_is_valid
+from app.image_utils import (
+    fetch_image_bytes_from_url,
+    image_api_response_to_sse_href,
+    stored_image_file_is_valid,
+)
 from app.presentation_pptx import (
     build_colorful_pptx,
     normalize_slide_rows_for_images,
@@ -449,6 +454,108 @@ async def prepare_image_generation_prompt(
                 )[:4000]
 
     return model_id, prompt[:4000]
+
+
+def _use_reference_image_for_request(last_text: str, refs: list[str]) -> bool:
+    if not refs:
+        return False
+    return not IMAGE_GEN_RE.search((last_text or "").strip())
+
+
+def _image_api_body_common(prompt: str) -> dict[str, Any]:
+    return {
+        "prompt": prompt,
+        "n": 1,
+        "size": "1024x1024",
+        "response_format": "b64_json",
+    }
+
+
+async def _post_images_generations_with_model_fallback(
+    client: MWSClient,
+    model_id: str,
+    fields: dict[str, Any],
+) -> dict[str, Any]:
+    """POST /images/generations; при 400/404 — повтор с settings.image_gen_model."""
+    try:
+        return await client.post_json("/images/generations", {"model": model_id, **fields})
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code in (400, 404) and model_id != settings.image_gen_model:
+            logger.warning(
+                "requested_model %s failed for images, retrying with default %s",
+                model_id,
+                settings.image_gen_model,
+            )
+            return await client.post_json(
+                "/images/generations",
+                {"model": settings.image_gen_model, **fields},
+            )
+        raise
+
+
+async def post_images_with_optional_reference(
+    client: MWSClient,
+    model_id: str,
+    prompt: str,
+    last_user_text: str,
+    messages: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """
+    По умолчанию — t2i. Если есть ссылка на последнюю картинку ассистента и запрос не похож на явную новую генерацию,
+    сначала /images/edits, затем img2img-поля в /images/generations, иначе снова t2i.
+    """
+    refs = _collect_assistant_image_urls(messages or [], max_n=1)
+    ref_url = refs[0] if refs else None
+    use_ref = (
+        settings.image_edit_enabled
+        and ref_url
+        and _use_reference_image_for_request(last_user_text, refs)
+    )
+    base = _image_api_body_common(prompt)
+
+    if not use_ref:
+        return await _post_images_generations_with_model_fallback(client, model_id, base)
+
+    edit_model = (settings.image_edit_model or "").strip() or model_id
+    edits_body = {
+        **base,
+        "model": edit_model,
+        "images": [{"image_url": ref_url}],
+        "input_fidelity": settings.image_edit_input_fidelity,
+    }
+    try:
+        return await client.post_json("/images/edits", edits_body)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code not in (400, 404, 405, 422):
+            raise
+        logger.info("images/edits failed (%s), trying img2img", e.response.status_code)
+
+    raw = await fetch_image_bytes_from_url(ref_url)
+    if not raw:
+        logger.warning("reference image fetch failed, falling back to text-to-image")
+        return await _post_images_generations_with_model_fallback(client, model_id, base)
+
+    b64 = base64.b64encode(raw).decode("ascii")
+    s = settings.image_edit_img2img_strength
+    img2img_variants: tuple[dict[str, Any], ...] = (
+        {"image": b64, "strength": s},
+        {"image": b64},
+        {"init_image": b64, "strength": s},
+        {"init_image": b64},
+    )
+    for extra in img2img_variants:
+        try:
+            return await client.post_json(
+                "/images/generations",
+                {"model": model_id, **base, **extra},
+            )
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (400, 404, 422):
+                continue
+            raise
+
+    logger.info("img2img variants failed, falling back to text-to-image")
+    return await _post_images_generations_with_model_fallback(client, model_id, base)
 
 
 def friendly_stream_error(exc: BaseException) -> str:
@@ -891,23 +998,14 @@ async def stream_image_markdown(
         model_id, final_prompt = await prepare_image_generation_prompt(
             client, prompt, messages, available_ids, requested_model
         )
-        
-        payload = {
-            "model": model_id,
-            "prompt": final_prompt,
-            "n": 1,
-            "size": "1024x1024",
-            "response_format": "b64_json",
-        }
-        try:
-            img_resp = await client.post_json("/images/generations", payload)
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code in (400, 404) and model_id != settings.image_gen_model:
-                logger.warning("requested_model %s failed for images, retrying with default %s", model_id, settings.image_gen_model)
-                payload["model"] = settings.image_gen_model
-                img_resp = await client.post_json("/images/generations", payload)
-            else:
-                raise
+        lu_text = ""
+        for m in reversed(messages or []):
+            if (m.get("role") or "") == "user":
+                lu_text = _content_to_text(m.get("content"))
+                break
+        img_resp = await post_images_with_optional_reference(
+            client, model_id, final_prompt, lu_text, messages
+        )
 
         href = await image_api_response_to_sse_href(img_resp, settings.data_dir)
         if href.startswith("static/") and not stored_image_file_is_valid(settings.data_dir, href):

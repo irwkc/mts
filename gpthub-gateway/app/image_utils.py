@@ -20,6 +20,28 @@ logger = logging.getLogger("gpthub.image")
 _MWS_DOMAINS = ("api.gpt.mws.ru", "mws.ru", "gpt.mws.ru")
 
 
+async def fetch_image_bytes_from_url(url: str) -> bytes:
+    """Скачать изображение по https URL. Для доменов MWS передаётся Bearer."""
+    u = (url or "").strip()
+    if not u.startswith("http://") and not u.startswith("https://"):
+        return b""
+    headers: dict[str, str] = {"User-Agent": "gpthub-gateway/1.0"}
+    if any(d in u for d in _MWS_DOMAINS):
+        headers["Authorization"] = f"Bearer {settings.mws_api_key}"
+    try:
+        async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
+            r = await client.get(u, headers=headers)
+            r.raise_for_status()
+            raw = r.content
+        if not raw or not looks_like_image_bytes(raw[:64]):
+            logger.warning("fetch_image_bytes_from_url: not a valid image (%s)", u[:80])
+            return b""
+        return raw
+    except Exception as e:
+        logger.warning("fetch_image_bytes_from_url failed (%s): %s", u[:80], e)
+        return b""
+
+
 def looks_like_image_bytes(head: bytes) -> bool:
     """Минимальная проверка, что байты — не пустой ответ и похожи на PNG/JPEG/GIF/WebP."""
     if len(head) < 8:

@@ -55,6 +55,31 @@ class Settings(BaseSettings):
     default_llm: str = "mts-anya"
     vision_model: str = "gpt-4o"
     image_gen_model: str = "qwen-image"
+    # Правка существующей картинки: /images/edits или img2img; пустая модель = та же, что для generations
+    image_edit_enabled: bool = Field(default=True, validation_alias="GPTHUB_IMAGE_EDIT_ENABLED")
+    image_edit_model: str = Field(default="", validation_alias="GPTHUB_IMAGE_EDIT_MODEL")
+    image_edit_input_fidelity: str = Field(default="high", validation_alias="GPTHUB_IMAGE_EDIT_FIDELITY")
+    image_edit_img2img_strength: float = Field(
+        default=0.42,
+        validation_alias="GPTHUB_IMAGE_EDIT_STRENGTH",
+        description="Сила денойза при img2img fallback (если провайдер поддерживает)",
+    )
+
+    @field_validator("image_edit_input_fidelity", mode="before")
+    @classmethod
+    def normalize_image_edit_fidelity(cls, v: object) -> str:
+        s = str(v or "high").strip().lower()
+        return s if s in ("high", "low") else "high"
+
+    @field_validator("image_edit_img2img_strength", mode="before")
+    @classmethod
+    def clamp_img2img_strength(cls, v: object) -> float:
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            return 0.42
+        return max(0.05, min(0.95, x))
+
     asr_model: str = "whisper-medium"
     embedding_model: str = "bge-m3"
 
