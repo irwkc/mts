@@ -1,3 +1,6 @@
+# Скопируйте в репозиторий: .github/workflows/gpthub-pytest.yml
+# Push workflow в GitHub требует PAT с правом «workflow» (или добавьте файл вручную в веб-интерфейсе).
+
 name: gpthub-gateway tests
 
 on:

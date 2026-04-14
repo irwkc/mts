@@ -10,7 +10,7 @@ python -m pip install -r requirements.txt -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-В CI: workflow **gpthub-pytest** (GitHub Actions) на push/PR при изменениях в `gpthub-gateway/**`.
+CI: пример workflow — [github-workflow-gpthub-pytest.yml.example](github-workflow-gpthub-pytest.yml.example) (скопировать в `.github/workflows/gpthub-pytest.yml`; push такого файла из автоматики требует GitHub PAT с scope **workflow**).
 
 ## Соответствие ТЗ 1–15
 
