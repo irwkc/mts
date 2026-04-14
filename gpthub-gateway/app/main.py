@@ -42,6 +42,11 @@ from app.memory_context import (
     maybe_compress_messages_for_context,
 )
 from app.memory_store import MemoryStore
+from app.music_demo import (
+    build_mp3_from_prompt,
+    melody_notes_from_llm,
+    user_wants_music_demo,
+)
 from app.mws_client import MWSClient
 from app.presentation_api import pptx_path, router as presentation_api_router, validate_stem
 from app.pptx_pdf import ensure_pptx_pdf
@@ -519,6 +524,67 @@ def _inject_system(messages: list[dict[str, Any]], extra: str) -> list[dict[str,
     return ms
 
 
+async def maybe_music_demo_chat(
+    request: Request,
+    messages: list[dict[str, Any]],
+    last_text: str,
+    stream: bool,
+    auto_mode: bool,
+) -> Optional[dict[str, Any]]:
+    """Демо MP3 (music_demo): только нестрим + gpthub-auto. Иначе None.
+
+    В UI при stream=true перехват не срабатывает (см. ТЗ: демо-мелодия без stream).
+    """
+    if stream or not auto_mode or not (last_text or "").strip():
+        return None
+    if not user_wants_music_demo(last_text):
+        return None
+    if message_has_image(messages) or message_has_audio(messages):
+        return None
+    available = await get_available_model_ids()
+    mid = gena_chat_target()
+    if mid not in available:
+        if settings.default_llm in available:
+            mid = settings.default_llm
+        else:
+            for x in sorted(available):
+                if x != settings.auto_model_id:
+                    mid = x
+                    break
+    try:
+        llm_notes = await melody_notes_from_llm(_client, last_text, mid)
+        mp3 = build_mp3_from_prompt(last_text, llm_notes)
+    except Exception as e:
+        logger.warning("music demo failed: %s", e)
+        return None
+    if not mp3:
+        return None
+    fname = f"music_{uuid.uuid4().hex[:12]}.mp3"
+    rel = f"static/music/{fname}"
+    dest = settings.data_dir / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(mp3)
+    url = public_static_url(request, rel)
+    content = (
+        "**Демо-мелодия (MP3, синтез в шлюзе)**\n\n"
+        f"[Скачать MP3]({url})\n"
+    )
+    return {
+        "id": f"chatcmpl-gpthub-music-{uuid.uuid4().hex[:10]}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": mid,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }
+
+
 async def maybe_image_generation_chat(
     messages: list[dict[str, Any]],
     route_note: str,
@@ -640,6 +706,11 @@ async def chat_completions(request: Request) -> Response:
             )
 
     if not stream:
+        music_early = await maybe_music_demo_chat(
+            request, messages, last_text, stream, auto_mode
+        )
+        if music_early:
+            return JSONResponse(music_early)
         img_early = await maybe_image_generation_chat(messages, "", req)
         if img_early:
             return JSONResponse(img_early)

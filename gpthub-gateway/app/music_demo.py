@@ -17,6 +17,27 @@ from pydub import AudioSegment
 
 logger = logging.getLogger("gpthub.music_demo")
 
+# Триггеры демо MP3 (нестримовый чат; см. chat_completions → maybe_music_demo_chat)
+MUSIC_INTENT_RE = re.compile(
+    r"("
+    r"(?:сгенерируй|сгенерь|создай|напиши|сделай)(?:\s+мне)?\s+(?:короткую\s+)?(?:мелоди|музык|трек|композици)|"
+    r"(?:сгенерируй|создай)\s+mp3\b|"
+    r"\b(?:melody|music|tune)\s+mp3\b|"
+    r"generate\s+(?:a\s+)?(?:short\s+)?(?:melody|music|tune)|"
+    r"make\s+(?:a\s+)?(?:short\s+)?melody"
+    r")",
+    re.I,
+)
+
+
+def user_wants_music_demo(text: str) -> bool:
+    """Запрос на демо-мелодию MP3 (синтез в шлюзе), без стрима."""
+    t = (text or "").strip()
+    if len(t) < 8:
+        return False
+    return bool(MUSIC_INTENT_RE.search(t))
+
+
 _SAMPLE_RATE = 44100
 # Вокальная линия под песню: ~1–1.5 мин; верхняя граница синтеза с небольшим запасом
 _MAX_NOTES = 240
