@@ -8,6 +8,7 @@ import json
 import logging
 import time
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
 
@@ -224,7 +225,22 @@ def _configure_logging() -> None:
 _configure_logging()
 logger = logging.getLogger("gpthub")
 
-app = FastAPI(title="GPTHub Gateway", version="1.0.0")
+_models_cache: dict[str, Any] = {"t": 0.0, "data": None}
+_memory: Optional[MemoryStore] = None
+_rag: Optional[RAGStore] = None
+_client = MWSClient()
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    global _memory, _rag
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    _memory = MemoryStore(str(settings.data_dir / "memory.sqlite"))
+    _rag = RAGStore(str(settings.data_dir / "rag.sqlite"))
+    yield
+
+
+app = FastAPI(title="GPTHub Gateway", version="1.0.0", lifespan=_lifespan)
 
 
 @app.middleware("http")
@@ -326,19 +342,6 @@ app.mount(
 )
 
 app.mount("/static", StaticFiles(directory=str(_static_root)), name="static")
-
-_models_cache: dict[str, Any] = {"t": 0.0, "data": None}
-_memory: Optional[MemoryStore] = None
-_rag: Optional[RAGStore] = None
-_client = MWSClient()
-
-
-@app.on_event("startup")
-async def startup() -> None:
-    global _memory, _rag
-    settings.data_dir.mkdir(parents=True, exist_ok=True)
-    _memory = MemoryStore(str(settings.data_dir / "memory.sqlite"))
-    _rag = RAGStore(str(settings.data_dir / "rag.sqlite"))
 
 
 async def get_available_model_ids() -> set[str]:
@@ -469,7 +472,7 @@ async def audio_speech(request: Request) -> Response:
 
 @app.post("/v1/audio/transcriptions")
 async def transcribe(request: Request) -> Response:
-    # multipart → MWS; принудительно устанавливаем язык ru, если клиент не передал явно
+    # multipart → MWS; язык: клиент > GPTHUB_ASR_DEFAULT_LANGUAGE > не передаём (авто Whisper)
     form = await request.form()
     files = {}
     data = {}
@@ -478,10 +481,10 @@ async def transcribe(request: Request) -> Response:
             files[k] = (getattr(v, "filename", None) or "audio", await v.read())
         else:
             data[k] = v
-    # Whisper без language автоопределяет язык, что приводит к ошибкам (напр. ru → pt).
-    # Добавляем language=ru по умолчанию.
     if "language" not in data:
-        data["language"] = "ru"
+        lang = (settings.asr_default_language or "").strip()
+        if lang:
+            data["language"] = lang
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
             r = await client.post(
