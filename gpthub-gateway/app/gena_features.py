@@ -526,9 +526,14 @@ async def post_images_with_optional_reference(
     try:
         return await client.post_json("/images/edits", edits_body)
     except httpx.HTTPStatusError as e:
-        if e.response.status_code not in (400, 404, 405, 422):
+        if e.response.status_code == 401:
             raise
-        logger.info("images/edits failed (%s), trying img2img", e.response.status_code)
+        # MWS часто не принимает JSON edits (multipart/другой контракт) или отвечает 5xx — идём в img2img.
+        logger.info(
+            "images/edits skipped (%s), trying img2img: %s",
+            e.response.status_code,
+            (e.response.text or "")[:200].replace("\n", " "),
+        )
 
     raw = await fetch_image_bytes_from_url(ref_url)
     if not raw:
@@ -545,12 +550,11 @@ async def post_images_with_optional_reference(
     )
     for extra in img2img_variants:
         try:
-            return await client.post_json(
-                "/images/generations",
-                {"model": model_id, **base, **extra},
+            return await _post_images_generations_with_model_fallback(
+                client, model_id, {**base, **extra}
             )
         except httpx.HTTPStatusError as e:
-            if e.response.status_code in (400, 404, 422):
+            if e.response.status_code in (400, 404, 422, 500, 502, 503):
                 continue
             raise
 
