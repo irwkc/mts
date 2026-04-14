@@ -1,0 +1,2 @@
+# Для локального и CI: pytest tests/
+pytest>=8.0
