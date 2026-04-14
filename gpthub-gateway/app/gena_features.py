@@ -49,8 +49,9 @@ _MD_IMG_URL = re.compile(r"!\[[^\]]*\]\((https?://[^)\s]+)\)")
 # иначе ловится обычный текст в чате.
 _IMAGE_EDIT_FOLLOWUP = re.compile(
     r"(?:"
-    r"измени|изменить|перерисуй|перекрась|отредактируй|подправь|доработай|"
+    r"измени|изменить|перерисуй|покрась|перекрась|отредактируй|подправь|доработай|"
     r"убери\b|"
+    r"добавь\s+к\s+(?:ним|нему|ней|нам|вам|этому|этой|этим)(?:\s+[\wа-яё\-]+)*|"
     r"добавь\s+(?:на\s+)?(?:картин|фото|фон|небо|объект|задний\s+план|передний\s+план)|"
     r"добавь\s+(?:ещё|еще\s+)?(?!(?:" + _DOC_WORD_AFTER_ADD + r")\b)[\wа-яё\-]{2,}|"
     r"ещ[ёе]\s*(?:вариант|картин|фото|раз|верси|один|одну|одного)|"
@@ -70,6 +71,7 @@ _IMAGE_EDIT_FOLLOWUP = re.compile(
     r"обрежь|кадрируй|приблизь|отдали|зум\b|"
     r"regenerate\s+(?:the\s+)?(?:image|picture|photo)\b|"
     r"in\s+the\s+same\s+style\b|keep\s+the\s+same\s+style\b|"
+    r"add\s+to\s+(?:it|them|this|that)(?:\s+[\w\-]+)*|"
     r"add\s+(?:a|an|the)\s+(?!(?:" + _DOC_WORD_AFTER_ADD_EN + r")\b)[\w\-]{2,}|"
     r"(?:re)?move\s+the\s+(?:background|foreground|object|text|watermark)|"
     r"change\s+the\s+(?:background|style|colors?)|edit\s+the\s+image|replace\s+the\s+background|"
@@ -120,6 +122,73 @@ def _last_assistant_has_markdown_image(messages: list[dict[str, Any]]) -> bool:
     return False
 
 
+def _last_assistant_content(messages: list[dict[str, Any]]) -> str:
+    for m in reversed(messages or []):
+        if (m.get("role") or "") == "assistant":
+            return _content_to_text(m.get("content"))
+    return ""
+
+
+# Ассистент описал сцену и предложил сгенерировать картинку (ещё без ![...] в чате).
+_ASSISTANT_OFFERS_IMAGE = re.compile(
+    r"(?:"
+    r"хочешь\s*,?\s*я\s+(?:создам|сгенерирую|нарисую)|"
+    r"хотите\s*,?\s*(?:чтобы\s+)?я\s+(?:создал|создала|сгенерир|нарисовал|нарисовала)|"
+    r"могу\s+(?:создать|сгенерир|нарисовать)\s+(?:тебе\s+)?(?:изображение|картинк|иллюстрац|фото|рисунок)|"
+    r"(?:создам|сгенерирую)\s+(?:тебе\s+)?(?:изображение|картинк)\s+по\s+этому\s+описан"
+    r"|создать\s+(?:тебе\s+)?(?:изображение|картинк)\s+по\s+(?:этому\s+)?описанию"
+    r"|(?:want|would\s+you\s+like)\s+(?:me\s+)?to\s+(?:create|generate|draw|make)\s+(?:an?\s+)?(?:image|picture|illustration)"
+    r"|shall\s+i\s+(?:create|generate|draw)"
+    r"|should\s+i\s+generate"
+    r")",
+    re.I | re.S,
+)
+
+_AFFIRMATIVE_IMAGE_CONSENT = re.compile(
+    r"^\s*(?:"
+    r"давай|да\b|ага|угу|окей|ок|okay|ладно|конечно|без\s+проблем|"
+    r"yes|yeah|yep|sure|ok\.?|go\s+ahead|please\s+do|do\s+it|ну\s+давай"
+    r")\s*[!?.…]*\s*$",
+    re.I,
+)
+_AFFIRMATIVE_IMAGE_CONSENT_COMBO = re.compile(
+    r"^\s*(?:да\s*,\s*давай|давай\s*,\s*да|ок\s*,\s*давай|да\s+давай|ну\s+давай)\s*[!?.…]*\s*$",
+    re.I,
+)
+
+
+def _assistant_offered_image_generation(messages: list[dict[str, Any]]) -> bool:
+    ac = _last_assistant_content(messages)
+    if len(ac.strip()) < 24:
+        return False
+    return bool(_ASSISTANT_OFFERS_IMAGE.search(ac))
+
+
+def _affirmative_image_consent(t: str) -> bool:
+    s = t.strip()
+    if len(s) > 56:
+        return False
+    return bool(_AFFIRMATIVE_IMAGE_CONSENT.match(s) or _AFFIRMATIVE_IMAGE_CONSENT_COMBO.match(s))
+
+
+def _effective_user_text_for_image_prompt(user_text: str, messages: list[dict[str, Any]] | None) -> str:
+    """Если пользователь согласился на предложение ассистента сгенерировать — промпт из текста ассистента."""
+    msgs = messages or []
+    t = (user_text or "").strip()
+    if not (_assistant_offered_image_generation(msgs) and _affirmative_image_consent(t)):
+        return user_text
+    ac = _last_assistant_content(msgs).strip()
+    if not ac:
+        return user_text
+    return (
+        "The user agreed to generate an image. The assistant had proposed the following "
+        "(including the scene description). Write ONE English text-to-image prompt that "
+        "implements the scene the assistant described.\n\n"
+        f"--- Assistant message ---\n{ac[:12000]}\n--- End ---\n\n"
+        f'User confirmation: "{t}"'
+    )
+
+
 def _image_followup_after_assistant_picture(last_text: str, messages: list[dict[str, Any]]) -> bool:
     """Запрос без явного «нарисуй», но после сгенерированной картинки — доработка сцены."""
     if not last_text:
@@ -150,7 +219,12 @@ def user_wants_image_generation(
     messages: list[dict[str, Any]],
     route_has_image_gen: bool,
 ) -> bool:
-    if not last_text or len(last_text.strip()) < 3:
+    if not last_text:
+        return False
+    t = last_text.strip()
+    if _assistant_offered_image_generation(messages) and _affirmative_image_consent(t):
+        return True
+    if len(t) < 3:
         return False
     if route_has_image_gen:
         return True
@@ -174,6 +248,7 @@ async def prepare_image_generation_prompt(
             if c in available_ids:
                 model_id = c
                 break
+    basis = _effective_user_text_for_image_prompt(user_text, messages)
     prompt = user_text
     try:
         if image_refs:
@@ -186,10 +261,11 @@ async def prepare_image_generation_prompt(
                             "role": "system",
                             "content": (
                                 "You write ONE English prompt for a text-to-image diffusion model. "
-                                "The user is iterating on a previous image; the URLs describe what was "
-                                "already generated (style and subject). "
-                                "Describe the full new scene after the user's change — objects, colors, "
-                                "lighting, composition, art style. "
+                                "The user is editing a previous image; the URLs show what was already generated. "
+                                "If they ask to ADD an object, person, or animal, merge it into the SAME scene: "
+                                "keep the existing subjects and style unless they asked to remove or replace something. "
+                                "Describe one unified image (e.g. elephant and bird together in one shot). "
+                                "For color/style tweaks, describe the full scene with the change applied. "
                                 "Do not output URLs or markdown. Output ONLY the prompt."
                             ),
                         },
@@ -198,7 +274,7 @@ async def prepare_image_generation_prompt(
                             "content": (
                                 "Reference image URL(s) from the previous assistant message:\n"
                                 + "\n".join(f"- {u}" for u in image_refs)
-                                + f"\n\nUser instruction (any language):\n{user_text[:3000]}"
+                                + f"\n\nUser instruction (any language):\n{basis[:3000]}"
                             ),
                         },
                     ],
@@ -216,14 +292,15 @@ async def prepare_image_generation_prompt(
                             "role": "system",
                             "content": (
                                 "You write ONE English prompt for a text-to-image diffusion model. "
-                                "The previous assistant message in this chat already contained a generated "
-                                "image (markdown image; may be a hosted URL or inline data). "
-                                "The user now asks for a revision. Describe the complete new image — "
-                                "scene, style, lighting, objects — matching their instruction. "
+                                "The previous assistant message already contained a generated image. "
+                                "The user asks for a revision or to ADD something. "
+                                "If they add an element, describe ONE scene that includes BOTH the previous "
+                                "content and the new element together (same style, coherent composition). "
+                                "Do not drop the original subject unless they asked to remove it. "
                                 "Do not mention chat or URLs. Output ONLY the prompt."
                             ),
                         },
-                        {"role": "user", "content": user_text[:3000]},
+                        {"role": "user", "content": basis[:3000]},
                     ],
                     "max_tokens": 700,
                     "temperature": 0.35,
@@ -239,7 +316,7 @@ async def prepare_image_generation_prompt(
                             "role": "system",
                             "content": "Output ONLY a concise English image generation prompt, no other text.",
                         },
-                        {"role": "user", "content": user_text[:2000]},
+                        {"role": "user", "content": basis[:2000]},
                     ],
                     "max_tokens": 500,
                     "temperature": 0.35,
@@ -255,6 +332,8 @@ async def prepare_image_generation_prompt(
             prompt = ep
     except Exception:
         logger.exception("image prompt enhance")
+    if prompt == user_text and basis != user_text:
+        prompt = basis
     return model_id, prompt[:4000]
 
 
