@@ -68,6 +68,7 @@ bash scripts/compose-up-verbose.sh
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — схема и сценарии.
 - [docs/MODELS.md](docs/MODELS.md) — соответствие моделей задачам.
 - [docs/MWS_TEAM_MODELS.md](docs/MWS_TEAM_MODELS.md) — дефолты под ограниченный каталог MWS, curl, чеклист.
+- [docs/QA_CHECKLIST.md](docs/QA_CHECKLIST.md) — проверка ТЗ по шагам, готовые промпты, критерии ОК/не ОК.
 - [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) — сценарий демо-видео.
 
 ## Лицензии
