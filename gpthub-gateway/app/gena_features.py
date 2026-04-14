@@ -57,6 +57,18 @@ def _assistant_context_for_image_edit(messages: list[dict[str, Any]] | None) -> 
     return s.strip()[:12000]
 
 
+# Перекраска / «покрась в …» — иначе diffusion путает цвет с новым объектом (фиолетовый → цветок вместо кота).
+_COLOR_ONLY_EDIT = re.compile(
+    r"(?:"
+    r"(?:покрась|перекрась|покрасьте|раскрась)\s+в\s+|"
+    r"поменяй\s+цвет|смени\s+цвет|"
+    r"\b(?:purple|violet|magenta|recolor|repaint)\b|"
+    r"change\s+(?:the\s+)?colou?r|tint\s+it"
+    r")",
+    re.I,
+)
+
+
 def _merge_basis_with_assistant_context(basis: str, messages: list[dict[str, Any]] | None) -> str:
     if "--- Assistant message ---" in basis or basis.strip().startswith("The user agreed to generate"):
         return basis[:12000]
@@ -276,6 +288,16 @@ async def prepare_image_generation_prompt(
                 break
     basis = _effective_user_text_for_image_prompt(user_text, messages)
     enriched = _merge_basis_with_assistant_context(basis, messages)
+    _color_only = bool(_COLOR_ONLY_EDIT.search((user_text or "").strip()))
+    if _color_only:
+        enriched = (
+            "COLOR-ONLY EDIT: Keep the EXACT same main subject, species, pose and scene as in the reference "
+            "and in the assistant text (e.g. the same cat). Only change color, lighting, or tint as requested. "
+            "Do NOT introduce a different subject (no flowers, plants, or random objects) unless they were "
+            "already the main subject. Purple/violet means recolor the existing subject, not a violet flower.\n\n"
+            + enriched
+        )[:14000]
+    enhance_temp = 0.22 if _color_only else 0.35
     prompt = user_text
     try:
         if image_refs:
@@ -294,6 +316,8 @@ async def prepare_image_generation_prompt(
                                 "output a prompt that only describes the new item alone. "
                                 "(2) Merge into ONE scene: same subject(s) + the new element (e.g. cat with Ukrainian flag). "
                                 "(3) Keep style and composition unless they asked to change only style. "
+                                "(4) If they ask to RECOLOR or paint (purple, violet, red…), keep the SAME animal/object; "
+                                "only change colors — never swap the subject for something else that matches the color word. "
                                 "Do not output URLs or markdown. Output ONLY the prompt."
                             ),
                         },
@@ -307,7 +331,7 @@ async def prepare_image_generation_prompt(
                         },
                     ],
                     "max_tokens": 700,
-                    "temperature": 0.35,
+                    "temperature": enhance_temp,
                 },
             )
         elif _last_assistant_has_markdown_image(messages or []):
@@ -324,13 +348,15 @@ async def prepare_image_generation_prompt(
                                 "If the user adds a flag, object, or detail, your prompt MUST include BOTH the "
                                 "original main subject (e.g. the same cat) AND the new element — never only the flag "
                                 "or only the new object. One coherent scene. "
+                                "If the user asks to change COLOR (purple, violet, red…), keep the SAME subject and "
+                                "composition — recolor only; do not replace a cat with a flower or other object. "
                                 "Do not mention chat or URLs. Output ONLY the prompt."
                             ),
                         },
                         {"role": "user", "content": enriched[:12000]},
                     ],
                     "max_tokens": 700,
-                    "temperature": 0.35,
+                    "temperature": enhance_temp,
                 },
             )
         else:
@@ -346,7 +372,7 @@ async def prepare_image_generation_prompt(
                         {"role": "user", "content": basis[:2000]},
                     ],
                     "max_tokens": 500,
-                    "temperature": 0.35,
+                    "temperature": enhance_temp,
                 },
             )
         ep = (

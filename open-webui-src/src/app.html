@@ -102,35 +102,54 @@
 				}
 			</style>
 
-			<img id="splash-logo" src="/static/splash.png" alt="" />
-			<script>
-				(function () {
-					var h = document.documentElement;
-					if (h.classList.contains('her')) return;
-					var el = document.getElementById('splash-logo');
-					if (!el) return;
-					el.src = h.classList.contains('dark') ? '/static/splash-dark.png' : '/static/splash.png';
-					el.onerror = function () {
-						this.onerror = null;
-						this.src = '/static/favicon.png';
-					};
-				})();
-			</script>
+			<!-- src задаётся скриптом: корневой /static/… ломается при paths.base и подпутях nginx -->
+			<img id="splash-logo" alt="" decoding="async" fetchpriority="high" />
 
 			<div id="her-splash-wrap">
-				<img
-					id="logo-her"
-					src="/static/splash.png"
-					alt=""
-					class="animate-pulse-fast"
-					onerror="this.onerror=null;this.src='/static/favicon.png'"
-				/>
+				<img id="logo-her" alt="" class="animate-pulse-fast" decoding="async" fetchpriority="high" />
 
 				<div id="her-progress-row">
 					<div id="progress-background"></div>
 					<div id="progress-bar" class="bg-white"></div>
 				</div>
 			</div>
+
+			<script>
+				(function () {
+					function staticUrl(name) {
+						var b = document.querySelector('base[href]');
+						if (b && b.href) {
+							try {
+								return new URL('static/' + name, b.href).href;
+							} catch (e) {}
+						}
+						return '/static/' + name;
+					}
+					var h = document.documentElement;
+					var fav = staticUrl('favicon.png');
+					var sp = staticUrl('splash.png');
+					var spDark = staticUrl('splash-dark.png');
+
+					if (h.classList.contains('her')) {
+						var lh = document.getElementById('logo-her');
+						if (lh) {
+							lh.src = sp;
+							lh.onerror = function () {
+								this.onerror = null;
+								this.src = fav;
+							};
+						}
+						return;
+					}
+					var el = document.getElementById('splash-logo');
+					if (!el) return;
+					el.src = h.classList.contains('dark') ? spDark : sp;
+					el.onerror = function () {
+						this.onerror = null;
+						this.src = fav;
+					};
+				})();
+			</script>
 		</div>
 	</body>
 
@@ -197,7 +216,7 @@
 			height: 13rem;
 			max-width: 100%;
 			object-fit: contain;
-			filter: invert(1);
+			filter: drop-shadow(0 2px 16px rgba(0, 0, 0, 0.25));
 		}
 
 		#her-progress-row {
