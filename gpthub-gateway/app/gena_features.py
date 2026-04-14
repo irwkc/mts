@@ -11,6 +11,7 @@ import re
 import uuid
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
+from urllib.parse import quote
 
 import httpx
 from fastapi import Request
@@ -815,9 +816,8 @@ async def stream_presentation_pptx(
     )
 
     slide_cap = _presentation_slide_cap(clean_prompt)
-    # Только gena-события в UI (док); без текста «[gena · презентация]» в чате
     yield sse_delta(
-        "",
+        "**[gena · презентация]**\n\n",
         gena={
             "type": "presentation_start",
             "slide_cap": slide_cap,
@@ -899,10 +899,14 @@ async def stream_presentation_pptx(
 
         normalize_slide_rows_for_images(slides_data, deck_title or "")
 
+        plan_lines: list[str] = []
+        if deck_title:
+            plan_lines.append(f"**{deck_title}**")
+        for i, s in enumerate(slides_data, 1):
+            plan_lines.append(f"{i}. {s.get('title', 'Слайд')}")
         summary = _slides_gena_summary(slides_data)
-        # План слайдов только в доке (deck_structure), не дублировать списком в чате
         yield sse_delta(
-            "",
+            "\n".join(plan_lines) + "\n\n",
             gena={
                 "type": "deck_structure",
                 "deck_title": (deck_title or "")[:500],
@@ -955,6 +959,16 @@ async def stream_presentation_pptx(
             stem=stem,
         )
         url = public_static_url(request, f"static/presentations/{fname}")
+        editor = public_app_url(request, f"presentation/editor/?stem={stem}")
+        preview_page = public_app_url(
+            request, f"preview/pptx?path={quote(f'static/presentations/{fname}', safe='')}"
+        )
+
+        # PPTX сразу после сборки; PDF может долго конвертироваться — не блокируем предпросмотр.
+        yield sse_delta(
+            "\n\n**Скачивание**\n\n"
+            f"- [Скачать PPTX]({url})\n\n",
+        )
 
         pdf_path = static_dir / f"{stem}.pdf"
         pdf_ok = await ensure_pptx_pdf(fpath, pdf_path)
@@ -964,15 +978,16 @@ async def stream_presentation_pptx(
             else public_app_url(request, f"presentation/pdf/{stem}")
         )
 
-        # В чат — только две понятные ссылки на скачивание (без предпросмотра, редактора и raw URL).
         yield sse_delta(
-            "\n\n"
-            f"- [Скачать PDF]({pdf_href})\n"
-            f"- [Скачать PPTX]({url})\n\n",
+            f"- [Скачать PDF]({pdf_href})\n\n"
+            f"- [Редактор слайдов]({editor})\n"
+            f"- [Предпросмотр в браузере · Office Online]({preview_page})\n\n",
             gena={
                 "type": "presentation_complete",
                 "stem": stem,
                 "download_url": url,
+                "editor_url": editor,
+                "preview_page_url": preview_page,
                 "pdf_url": pdf_href,
                 "pptx_rel": f"static/presentations/{fname}",
                 "slide_count": len(slides_data),
