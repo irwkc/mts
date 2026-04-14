@@ -34,6 +34,10 @@ bash scripts/compose-up-verbose.sh
 
 Голос и диктофон: в compose заданы `AUDIO_STT_*` и `AUDIO_TTS_*` на шлюз (`/v1/audio/transcriptions`, `/v1/audio/speech` → MWS). Модель Whisper — `ASR_MODEL` в `.env`. Режим роутера по умолчанию: `GPTHUB_ROUTER_MODE=gena` (без отдельного LLM-классификатора).
 
+## Проверка стека на сервере
+
+После деплоя: [docs/SERVER_VERIFICATION_RUNBOOK.md](docs/SERVER_VERIFICATION_RUNBOOK.md) и скрипт `bash scripts/verify-gpthub-stack.sh` (инфраструктура + curl-тесты к шлюзу).
+
 ## Переменные окружения
 
 См. [.env.example](.env.example). Критично: `MWS_API_KEY`. Имена моделей (`DEFAULT_LLM`, `VISION_MODEL`, `GPTHUB_GENA_CHAT_MODEL`, `GPTHUB_MEMORY_DIGEST_MODEL`, …) должны совпадать с ответом `GET /v1/models` для вашего ключа. Ограниченный каталог (ключ «команда» и т.п.): [docs/MWS_TEAM_MODELS.md](docs/MWS_TEAM_MODELS.md).
