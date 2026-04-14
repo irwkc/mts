@@ -8,7 +8,7 @@
 | 2 | Голосовой чат | **Да** | Аудио в сообщении → `POST /v1/audio/transcriptions` (Whisper в MWS) → текст в тот же тред → LLM. STT настроен в compose (`AUDIO_STT_ENGINE=openai`). |
 | 3 | Генерация изображений в чате | **Да** | Ключевые фразы «нарисуй», «сгенерируй» → `stream_image_markdown` → `POST /v1/images/generations` (`qwen-image`). Промпт улучшается через LLM перед генерацией. |
 | 4 | Аудиофайлы + авто ASR | **Да** | Вложение аудио → транскрипция Whisper (`whisper-medium`) → дальше обычный чат. Прокси через `/v1/audio/transcriptions`. |
-| 5 | Изображения (VLM) | **Да** | `image_url` / картинка в сообщении → `pick_route_gena` выбирает `VISION_MODEL` (`gpt-4o`) из каталога `/v1/models`. |
+| 5 | Изображения (VLM) | **Да** | `image_url` / картинка в сообщении → `pick_route_gena` выбирает `VISION_MODEL` (например `cotype-pro-vl-32b`) из каталога `/v1/models`. |
 | 6 | Файлы и ответы по содержимому | **Да** | RAG: чанки, `POST /v1/embeddings` с `bge-m3`, SQLite в volume `/data/rag.sqlite` → контекст в chat completions. Поддержка PDF через `pypdf`. |
 | 7 | Поиск в интернете | **Да** | DuckDuckGo (`duckduckgo-search`) → результаты в system → ответ LLM через MWS. Триггеры: «найди», «что нового», «актуальные», «погугли» и др. |
 | 8 | Веб-парсинг по ссылке | **Да** | `trafilatura` по URL из текста → фрагмент до 12 000 символов в контекст → LLM. Авто-извлечение URL regex. |

@@ -42,10 +42,10 @@ class ChatRequest(BaseModel):
 
 
 # --- Актуальные модели MWS GPT (по ТЗ) ---
-MODEL_CHAT = os.getenv("DEFAULT_LLM", "mts-anya")          # обычный диалог
+MODEL_CHAT = os.getenv("DEFAULT_LLM", "llama-3.1-8b-instruct")          # обычный диалог
 MODEL_CODE = os.getenv("GPTHUB_GENA_CODE_MODEL", "qwen3-coder-480b-a35b")  # код
 MODEL_LONG = os.getenv("GPTHUB_GENA_LONG_DOC_MODEL", "cotype-pro-vl-32b")  # длинные документы
-MODEL_VISION = os.getenv("VISION_MODEL", "gpt-4o")         # картинки
+MODEL_VISION = os.getenv("VISION_MODEL", "cotype-pro-vl-32b")         # картинки
 MODEL_IMAGE_GEN = os.getenv("IMAGE_GEN_MODEL", "qwen-image")  # генерация
 
 # --- Эвристики выбора моделей (синхронизированы с gpthub-gateway/router_logic.py) ---

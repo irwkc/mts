@@ -52,8 +52,9 @@ class Settings(BaseSettings):
         if len(s) >= 2 and s[0] in "\"'" and s[-1] == s[0]:
             return s[1:-1].strip()
         return s
-    default_llm: str = "mts-anya"
-    vision_model: str = "gpt-4o"
+    # Дефолты под типичный разрешённый каталог MWS (см. docs/MWS_TEAM_MODELS.md); у ключа «команда» часто нет mts-anya.
+    default_llm: str = "llama-3.1-8b-instruct"
+    vision_model: str = "cotype-pro-vl-32b"
     image_gen_model: str = "qwen-image"
     # Правка существующей картинки: /images/edits или img2img; пустая модель = та же, что для generations
     image_edit_enabled: bool = Field(default=True, validation_alias="GPTHUB_IMAGE_EDIT_ENABLED")
@@ -98,7 +99,7 @@ class Settings(BaseSettings):
         description="После ответа извлекать 0..N фактов отдельным вызовом LLM",
     )
     memory_digest_model: str = Field(
-        default="mts-anya",
+        default="llama-3.1-8b-instruct",
         validation_alias="GPTHUB_MEMORY_DIGEST_MODEL",
     )
     memory_raw_fallback: bool = Field(
@@ -132,8 +133,11 @@ class Settings(BaseSettings):
         default="cotype-pro-vl-32b",
         validation_alias="GPTHUB_GENA_LONG_DOC_MODEL",
     )
-    # Аналог mws-gpt-alpha в gena/router — «обычный диалог»
-    gena_chat_model: str = Field(default="", validation_alias="GPTHUB_GENA_CHAT_MODEL")
+    # Аналог mws-gpt-alpha в gena/router — «обычный диалог»; в router_logic пустая строка = default_llm
+    gena_chat_model: str = Field(
+        default="llama-3.1-8b-instruct",
+        validation_alias="GPTHUB_GENA_CHAT_MODEL",
+    )
     gena_long_doc_word_threshold: int = Field(
         default=600,
         validation_alias="GPTHUB_GENA_LONG_DOC_WORDS",

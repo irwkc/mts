@@ -16,8 +16,8 @@ def router_settings(monkeypatch: pytest.MonkeyPatch):
     from app import router_logic
 
     s = router_logic.settings
-    monkeypatch.setattr(s, "default_llm", "mts-anya", raising=False)
-    monkeypatch.setattr(s, "vision_model", "gpt-4o", raising=False)
+    monkeypatch.setattr(s, "default_llm", "llama-3.1-8b-instruct", raising=False)
+    monkeypatch.setattr(s, "vision_model", "cotype-pro-vl-32b", raising=False)
     monkeypatch.setattr(s, "auto_model_id", "gpthub-auto", raising=False)
     monkeypatch.setattr(s, "gena_chat_model", "", raising=False)
     monkeypatch.setattr(s, "gena_code_model", "code-model", raising=False)

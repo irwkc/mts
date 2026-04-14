@@ -36,7 +36,7 @@ bash scripts/compose-up-verbose.sh
 
 ## Переменные окружения
 
-См. [.env.example](.env.example). Критично: `MWS_API_KEY`. Имена моделей (`DEFAULT_LLM`, `VISION_MODEL`, …) должны совпадать с ответом `GET /v1/models` для вашего ключа.
+См. [.env.example](.env.example). Критично: `MWS_API_KEY`. Имена моделей (`DEFAULT_LLM`, `VISION_MODEL`, `GPTHUB_GENA_CHAT_MODEL`, `GPTHUB_MEMORY_DIGEST_MODEL`, …) должны совпадать с ответом `GET /v1/models` для вашего ключа. Ограниченный каталог (ключ «команда» и т.п.): [docs/MWS_TEAM_MODELS.md](docs/MWS_TEAM_MODELS.md).
 
 ## Деплой через GitHub Actions
 
@@ -67,6 +67,7 @@ bash scripts/compose-up-verbose.sh
 - `gpthub-gateway/` — FastAPI-шлюз (прокси, роутер, память, RAG, веб-инструменты).
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — схема и сценарии.
 - [docs/MODELS.md](docs/MODELS.md) — соответствие моделей задачам.
+- [docs/MWS_TEAM_MODELS.md](docs/MWS_TEAM_MODELS.md) — дефолты под ограниченный каталог MWS, curl, чеклист.
 - [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) — сценарий демо-видео.
 
 ## Лицензии

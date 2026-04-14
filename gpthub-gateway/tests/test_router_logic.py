@@ -11,7 +11,7 @@ def test_normalize_requested_model():
     assert rl.normalize_requested_model("") == ""
     assert rl.normalize_requested_model("gpthub-auto") == "gpthub-auto"
     assert rl.normalize_requested_model("openai/gpthub-auto") == "gpthub-auto"
-    assert rl.normalize_requested_model("  mts-anya  ") == "mts-anya"
+    assert rl.normalize_requested_model("  llama-3.1-8b-instruct  ") == "llama-3.1-8b-instruct"
 
 
 def test_content_to_text():
@@ -37,9 +37,9 @@ def test_message_has_image_audio():
 
 
 def test_pick_route_manual(router_settings):
-    ids = {"gpthub-auto", "mts-anya", "other"}
-    mid, note = rl.pick_route([{"role": "user", "content": "hi"}], "mts-anya", ids)
-    assert mid == "mts-anya"
+    ids = {"gpthub-auto", "llama-3.1-8b-instruct", "other"}
+    mid, note = rl.pick_route([{"role": "user", "content": "hi"}], "llama-3.1-8b-instruct", ids)
+    assert mid == "llama-3.1-8b-instruct"
     assert note == "manual"
 
     mid2, _ = rl.pick_route([], "unknown-model", ids)

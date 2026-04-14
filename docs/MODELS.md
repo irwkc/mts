@@ -1,11 +1,11 @@
 # Соответствие моделей и задач
 
-Идентификаторы должны совпадать с ответом `GET https://api.gpt.mws.ru/v1/models` для вашего ключа. Ниже — значения по умолчанию в `.env.example`.
+Идентификаторы должны совпадать с ответом `GET https://api.gpt.mws.ru/v1/models` для вашего ключа. Ниже — значения по умолчанию в `.env.example` / `docker-compose.yml` (см. также [MWS_TEAM_MODELS.md](MWS_TEAM_MODELS.md), если у ключа ограниченный каталог).
 
 | Задача | Переменная | Типичная модальность |
 |--------|------------|----------------------|
-| Общий текстовый чат, оркестрация инструментов | `DEFAULT_LLM` (например `mts-anya`) | text-to-text |
-| Анализ изображений в чате | `VISION_MODEL` (например `gpt-4o`) | image-text-to-text |
+| Общий текстовый чат, оркестрация инструментов | `DEFAULT_LLM` (например `llama-3.1-8b-instruct`) | text-to-text |
+| Анализ изображений в чате | `VISION_MODEL` (например `cotype-pro-vl-32b`) | image-text-to-text |
 | Генерация изображений по тексту | `IMAGE_GEN_MODEL` (например `qwen-image`) | text-to-image |
 | Транскрипция аудио | `ASR_MODEL` (например `whisper-medium`, `whisper-turbo-local` — см. доступные модели ключа) | speech-to-text |
 | Эмбеддинги памяти и RAG | `EMBEDDING_MODEL` (`bge-m3`) | embeddings |

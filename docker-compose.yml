@@ -19,8 +19,9 @@ services:
     environment:
       MWS_API_BASE: ${MWS_API_BASE:-https://api.gpt.mws.ru/v1}
       MWS_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
-      DEFAULT_LLM: ${DEFAULT_LLM:-mts-anya}
-      VISION_MODEL: ${VISION_MODEL:-gpt-4o}
+      DEFAULT_LLM: ${DEFAULT_LLM:-llama-3.1-8b-instruct}
+      VISION_MODEL: ${VISION_MODEL:-cotype-pro-vl-32b}
+      GPTHUB_MEMORY_DIGEST_MODEL: ${GPTHUB_MEMORY_DIGEST_MODEL:-llama-3.1-8b-instruct}
       IMAGE_GEN_MODEL: ${IMAGE_GEN_MODEL:-qwen-image}
       ASR_MODEL: ${ASR_MODEL:-whisper-medium}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
@@ -31,7 +32,7 @@ services:
       GPTHUB_PUBLIC_BASE_URL: ${GPTHUB_PUBLIC_BASE_URL:-https://notifik.ru}
       GPTHUB_GENA_CODE_MODEL: ${GPTHUB_GENA_CODE_MODEL:-qwen3-coder-480b-a35b}
       GPTHUB_GENA_LONG_DOC_MODEL: ${GPTHUB_GENA_LONG_DOC_MODEL:-cotype-pro-vl-32b}
-      GPTHUB_GENA_CHAT_MODEL: ${GPTHUB_GENA_CHAT_MODEL:-}
+      GPTHUB_GENA_CHAT_MODEL: ${GPTHUB_GENA_CHAT_MODEL:-llama-3.1-8b-instruct}
       GPTHUB_AUTO_MODEL_DISPLAY_NAME: "${GPTHUB_AUTO_MODEL_DISPLAY_NAME:-gena 2.0}"
       GPTHUB_LOG_LEVEL: ${GPTHUB_LOG_LEVEL:-DEBUG}
     volumes:
