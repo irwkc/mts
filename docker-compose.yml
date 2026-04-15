@@ -81,7 +81,7 @@ services:
       OPENAI_API_BASE_URLS: http://gpthub-gateway:8080/v1
       OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
       OPENAI_API_KEYS: ${MWS_API_KEY:?set MWS_API_KEY in .env}
-      WEBUI_URL: ${WEBUI_URL:-https://notifik.ru}
+      WEBUI_URL: ${WEBUI_URL:-http://localhost:3000}
       WEBUI_NAME: "${WEBUI_NAME:-gena 2.0}"
       # Модель по умолчанию в UI — авто-роутер (см. также нормализацию provider/id в шлюзе)
       DEFAULT_MODELS: '["gpthub-auto"]'

@@ -119,8 +119,8 @@ jobs:
       needs.build-gateway.result != 'failure' &&
       needs.build-openwebui.result != 'failure'
     runs-on: ubuntu-latest
-    # Должно быть ≥ command_timeout: иначе GitHub убьёт job во время долгого pull на слабом канале
-    timeout-minutes: 50
+    # Должно быть ≥ command_timeout; запас на pull слоёв, prune, nginx loop
+    timeout-minutes: 60
     steps:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
@@ -129,7 +129,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           password: ${{ secrets.SSH_PASSWORD }}
           port: 22
-          command_timeout: 45m
+          command_timeout: 55m
           script_stop: true
           script: |
             set -euo pipefail
@@ -138,16 +138,16 @@ jobs:
             git reset --hard origin/main
             # Остановить стек: иначе старые слои заняты, prune не освобождает место под новый pull (libtorch и т.д.)
             sudo docker compose down --remove-orphans || true
-            sudo bash gpthub-gateway/scripts/cleanup-server-disk.sh || true
+            # Быстрая очистка при деплое; полный prune/builder — вручную на сервере
+            sudo env DEPLOY_QUICK_CLEAN=1 bash gpthub-gateway/scripts/cleanup-server-disk.sh || true
             echo "=== df before pull ==="
             df -h / || true
-            # По одному сервису: в логе видно, на ком залипло; меньше параллельных загрузок на слабом канале
             export COMPOSE_PARALLEL_LIMIT=1
             pull_ok=0
             for attempt in 1 2 3 4 5; do
-              if sudo docker compose pull chroma && \
-                 sudo docker compose pull gpthub-gateway && \
-                 sudo docker compose pull open-webui; then
+              if sudo env COMPOSE_HTTP_TIMEOUT=300 DOCKER_CLIENT_TIMEOUT=300 docker compose pull chroma && \
+                 sudo env COMPOSE_HTTP_TIMEOUT=300 DOCKER_CLIENT_TIMEOUT=300 docker compose pull gpthub-gateway && \
+                 sudo env COMPOSE_HTTP_TIMEOUT=300 DOCKER_CLIENT_TIMEOUT=300 docker compose pull open-webui; then
                 pull_ok=1
                 break
               fi
@@ -157,8 +157,8 @@ jobs:
             done
             if [ "$pull_ok" -ne 1 ]; then
               echo "GHCR still unreachable; building gpthub-gateway on server (fallback, slower)"
-              sudo docker compose build gpthub-gateway
+              sudo env COMPOSE_HTTP_TIMEOUT=300 DOCKER_CLIENT_TIMEOUT=300 docker compose build gpthub-gateway
             fi
-            sudo docker compose up -d --force-recreate
+            sudo env COMPOSE_HTTP_TIMEOUT=300 DOCKER_CLIENT_TIMEOUT=300 docker compose up -d --force-recreate
             sudo bash scripts/setup-nginx.sh
             sudo env MTS_HOME="$(pwd)" bash scripts/install-boot-autostart.sh

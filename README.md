@@ -2,13 +2,23 @@
 
 Единый чат-интерфейс на базе [Open WebUI](https://github.com/open-webui/open-webui) и шлюза **GPTHub Gateway**: все вызовы LLM идут в **MWS GPT** (OpenAI-совместимый API `https://api.gpt.mws.ru/v1`), с автоматическим выбором модели (`gpthub-auto`), долговременной памятью (эмбеддинги `bge-m3`), RAG по длинным вставкам текста, веб-поиском и загрузкой страниц по ссылке.
 
-## Запуск одной командой
+## Запуск одной командой (локально)
 
-Создайте файл `.env` рядом с `docker-compose.yml` (например `cp .env.example .env`) и задайте в нём `MWS_API_KEY`, затем:
+Из корня репозитория (нужны **Docker** и **Docker Compose**):
 
 ```bash
-docker compose up -d --build
+bash scripts/local-up.sh
 ```
+
+Скрипт при отсутствии `.env` копирует `.env.example`, при необходимости добавляет `GPTHUB_PUBLIC_BASE_URL` для ссылок на `/static/` и поднимает стек. Ключ API нужно указать **в `.env`** (`MWS_API_KEY=...`) или одним разом в командной строке:
+
+```bash
+MWS_API_KEY=sk-ваш-ключ bash scripts/local-up.sh
+```
+
+Удобная обёртка (после `chmod +x local-up.sh`): `./local-up.sh`
+
+Классический вариант без скрипта: `cp .env.example .env`, правка `MWS_API_KEY`, затем `docker compose up -d --build`.
 
 **Open WebUI** собирается из **`open-webui-src/`** (форк с интеграцией gena) и слоя BAOBAB: `docker compose` использует **`open-webui-baobab/Dockerfile`** с контекстом **корня репозитория**. На проде по умолчанию тянется готовый образ **`ghcr.io/irwkc/mts-open-webui-baobab:latest`** из GitHub Actions. Отдельно из исходников собирается **gpthub-gateway** (`./gpthub-gateway`).
 
