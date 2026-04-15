@@ -62,6 +62,29 @@ docker compose exec gpthub-gateway sqlite3 /data/memory.sqlite "SELECT COUNT(*) 
 - **Gateway unhealthy:** `docker compose logs gpthub-gateway --tail=100`, затем при необходимости recreate только gateway.
 - **`curl: (52) Empty reply from server` на POST `/v1/chat/completions`, затем `Connection refused` на `:8081`:** часто **OOM** или падение процесса в контейнере шлюза. Смотрите `docker compose logs gpthub-gateway --tail=200`, на хосте `dmesg | tail -30` (строки `Out of memory` / `Killed process`). Облегчение: в `.env` поставить **`GPTHUB_LOG_LEVEL=INFO`** (вместо DEBUG — меньше объёма логов с телами JSON), при необходимости добавить swap или увеличить RAM; после `git pull` в compose для шлюза задан **`shm_size: 256mb`**. Дождитесь `healthy` и повторите запрос.
 
+## Контейнер шлюза не стартует: `marked for removal and cannot be started`
+
+Иногда после `docker compose up -d --force-recreate gpthub-gateway` Docker оставляет старый контейнер в полуснятом состоянии.
+
+**Без потери томов** (данные в `gpthub-data` на месте):
+
+```bash
+cd ~/mts   # каталог с docker-compose.yml
+docker rm -f mts-gpthub-gateway-1 2>/dev/null || true
+docker compose up -d gpthub-gateway
+docker compose ps
+curl -s http://127.0.0.1:8081/health
+```
+
+Если не помогло — перезапуск всего стека (короткий даунтайм):
+
+```bash
+docker compose down
+docker compose up -d
+```
+
+Тома `gpthub-data`, `open-webui-data`, `chroma-data` при этом **не удаляются** (они объявлены как named volumes в compose).
+
 ## Ограничения
 
 - Не удалять тома `gpthub-data`, `open-webui-data`, `chroma-data`.
