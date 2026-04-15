@@ -155,11 +155,9 @@
 				return;
 			}
 
-			const res = await transcribeAudio(
-				localStorage.token,
-				file,
-				$settings?.audio?.stt?.language
-			).catch((error) => {
+			const sttLang = ($settings?.audio?.stt?.language ?? '').trim() || 'ru';
+
+			const res = await transcribeAudio(localStorage.token, file, sttLang).catch((error) => {
 				toast.error(`${error}`);
 				return null;
 			});

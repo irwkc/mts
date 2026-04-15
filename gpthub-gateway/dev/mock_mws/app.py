@@ -6,10 +6,11 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from pathlib import Path
 from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 app = FastAPI(title="mock-mws")
 
@@ -18,8 +19,11 @@ MODELS = [
     {"id": "cotype-pro-vl-32b", "object": "model", "created": 0, "owned_by": "mock"},
     {"id": "qwen-image", "object": "model", "created": 0, "owned_by": "mock"},
     {"id": "whisper-medium", "object": "model", "created": 0, "owned_by": "mock"},
+    {"id": "tts-1", "object": "model", "created": 0, "owned_by": "mock"},
     {"id": "bge-m3", "object": "model", "created": 0, "owned_by": "mock"},
 ]
+
+_SILENT_MP3 = Path(__file__).resolve().parent / "silent.mp3"
 
 
 @app.get("/v1/models")
@@ -140,8 +144,11 @@ async def images(request: Request):
 
 
 @app.post("/v1/audio/speech")
-async def speech():
-    return JSONResponse({"error": "mock: use real MWS for TTS"}, status_code=501)
+async def speech(request: Request):
+    """Валидный короткий MP3, чтобы локальный стек проверял цепочку TTS без реального MWS."""
+    _ = await request.json()
+    data = _SILENT_MP3.read_bytes()
+    return Response(content=data, media_type="audio/mpeg")
 
 
 @app.post("/v1/audio/transcriptions")

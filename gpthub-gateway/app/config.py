@@ -106,6 +106,9 @@ class Settings(BaseSettings):
         default="",
         validation_alias="GPTHUB_ASR_DEFAULT_LANGUAGE",
     )
+    # Если MWS не принимает tts-1/alloy из Open WebUI — задайте id модели и голоса из GET /v1/models (или документации).
+    tts_override_model: str = Field(default="", validation_alias="GPTHUB_TTS_MODEL")
+    tts_override_voice: str = Field(default="", validation_alias="GPTHUB_TTS_VOICE")
     embedding_model: str = "bge-m3"
     # id через запятую: не использовать как fallback для chat/completions.
     non_chat_model_ids: str = Field(

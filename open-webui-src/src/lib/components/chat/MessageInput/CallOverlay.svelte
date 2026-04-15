@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { config, models, settings, showCallOverlay, TTSWorker } from '$lib/stores';
+	import {
+		config,
+		models,
+		settings,
+		showCallOverlay,
+		TTSWorker,
+		voiceCallAssistantTranscript
+	} from '$lib/stores';
 	import { get } from 'svelte/store';
 	import { onMount, tick, getContext, onDestroy, createEventDispatcher } from 'svelte';
 
@@ -13,6 +20,7 @@
 
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import VideoInputMenu from './CallOverlay/VideoInputMenu.svelte';
+	import Markdown from '$lib/components/chat/Messages/Markdown.svelte';
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 
@@ -155,11 +163,9 @@
 		await tick();
 		const file = blobToFile(audioBlob, 'recording.wav');
 
-		const res = await transcribeAudio(
-			localStorage.token,
-			file,
-			$settings?.audio?.stt?.language
-		).catch((error) => {
+		const sttLang = ($settings?.audio?.stt?.language ?? '').trim() || 'ru';
+
+		const res = await transcribeAudio(localStorage.token, file, sttLang).catch((error) => {
 			toast.error(`${error}`);
 			return null;
 		});
@@ -472,6 +478,7 @@
 	const fetchAudio = async (content) => {
 		if (!audioCache.has(content)) {
 			let synthesized = false;
+			let ttsErrorMessage: string | null = null;
 			try {
 				// Set the emoji for the content if needed
 				if ($settings?.showEmojiInCall ?? false) {
@@ -501,6 +508,8 @@
 					const res = await synthesizeOpenAISpeech(localStorage.token, getVoiceId(), content).catch(
 						(error) => {
 							console.error(error);
+							ttsErrorMessage =
+								error instanceof Error ? error.message : `${error ?? 'TTS request failed'}`;
 							return null;
 						}
 					);
@@ -523,7 +532,8 @@
 			if (!synthesized && !audioCache.has(content)) {
 				audioCache.set(content, TTS_FAILED);
 				toast.error(
-					get(i18n).t('Speech synthesis failed. Check Text-to-Speech settings.')
+					ttsErrorMessage?.trim() ||
+						get(i18n).t('Speech synthesis failed. Check Text-to-Speech settings.')
 				);
 			}
 		}
@@ -922,6 +932,29 @@
 				</div>
 			{/if}
 		</div>
+
+		{#if $voiceCallAssistantTranscript.id != null && (!$voiceCallAssistantTranscript.done || ($voiceCallAssistantTranscript.text ?? '').trim() !== '')}
+			<div
+				class="w-full min-h-0 max-h-[30vh] shrink-0 mt-2 mb-1 rounded-xl border border-gray-200/60 dark:border-gray-700/60 bg-gray-50/90 dark:bg-gray-900/80 px-3 py-2 overflow-y-auto"
+			>
+				<div
+					class="text-[0.65rem] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1"
+				>
+					{$i18n.t('Transcript')}
+				</div>
+				<div class="text-sm markdown-prose dark:prose-invert max-w-none">
+					<Markdown
+						id="voice-overlay-transcript"
+						content={$voiceCallAssistantTranscript.text}
+						done={$voiceCallAssistantTranscript.done}
+						{model}
+						save={false}
+						preview={true}
+						editCodeBlock={false}
+					/>
+				</div>
+			</div>
+		{/if}
 
 		<div class="flex justify-between items-center pb-2 w-full">
 			<div>

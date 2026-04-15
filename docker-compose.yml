@@ -18,6 +18,11 @@ services:
     environment:
       MWS_API_BASE: ${MWS_API_BASE:-https://api.gpt.mws.ru/v1}
       MWS_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
+      # Распознавание речи (Whisper): ru стабильнее для русской речи, если клиент не передал language
+      GPTHUB_ASR_DEFAULT_LANGUAGE: ${GPTHUB_ASR_DEFAULT_LANGUAGE:-ru}
+      # Опционально: если MWS не принимает tts-1/alloy, задайте свои id (см. GET /v1/models и логи шлюза при ошибке TTS).
+      # GPTHUB_TTS_MODEL:
+      # GPTHUB_TTS_VOICE:
       # Дефолты как в PDF MWS GPT (разд. 5): mws-gpt-alpha — основной диалог; см. GET /v1/models
       DEFAULT_LLM: ${DEFAULT_LLM:-mws-gpt-alpha}
       VISION_MODEL: ${VISION_MODEL:-cotype-pro-vl-32b}

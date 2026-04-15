@@ -30,6 +30,7 @@
 		audioQueue,
 		showControls,
 		showCallOverlay,
+		voiceCallAssistantTranscript,
 		currentChatPage,
 		temporaryChatEnabled,
 		mobile,
@@ -115,6 +116,7 @@
 	import { getBanners } from '$lib/apis/configs';
 	import GenaPresentation from '$lib/components/chat/GenaPresentation.svelte';
 	import { applyGenaDelta, genaPresentation } from '$lib/stores/genaPresentation';
+	import { sanitizeGenaAssistantMarkdown } from '$lib/utils/genaDisplay';
 	import {
 		applyGenaImageDelta,
 		clearGenaImageGeneration
@@ -125,6 +127,18 @@
 	let loading = true;
 
 	const eventTarget = new EventTarget();
+
+	const voiceOverlayTranscriptText = (raw: string) =>
+		sanitizeGenaAssistantMarkdown(removeAllDetails(raw ?? ''));
+
+	let _prevShowCallOverlay = false;
+	$: {
+		if (_prevShowCallOverlay && !$showCallOverlay) {
+			voiceCallAssistantTranscript.set({ id: null, text: '', done: true });
+		}
+		_prevShowCallOverlay = $showCallOverlay;
+	}
+
 	let controlPane: Pane | undefined;
 	let controlPaneComponent: ChatControls | undefined;
 
@@ -1839,6 +1853,14 @@
 			await processNextInQueue(chatId);
 		}
 
+		if ($showCallOverlay) {
+			voiceCallAssistantTranscript.set({
+				id: message.id,
+				text: voiceOverlayTranscriptText(message.content ?? ''),
+				done: !!done
+			});
+		}
+
 		console.log(data);
 		await tick();
 
@@ -2200,6 +2222,13 @@
 			})
 		);
 		neuralLog('ui:chat:start', { responseMessageId, model: model?.id });
+		if ($showCallOverlay) {
+			voiceCallAssistantTranscript.set({
+				id: responseMessageId,
+				text: '',
+				done: false
+			});
+		}
 		await tick();
 
 		let userLocation;

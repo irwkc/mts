@@ -215,7 +215,7 @@
 								type="text"
 								bind:value={STTLanguage}
 								aria-label={$i18n.t('Speech-to-Text Language')}
-								placeholder={$i18n.t('e.g. en')}
+								placeholder="ru"
 								class=" text-sm text-right bg-transparent dark:text-gray-300 outline-hidden"
 							/>
 						</Tooltip>

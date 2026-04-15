@@ -109,14 +109,39 @@ export const transcribeAudio = async (token: string, file: File, language?: stri
 	return res;
 };
 
+function ttsErrorMessage(res: Response, body: unknown): string {
+	if (body && typeof body === 'object') {
+		const o = body as Record<string, unknown>;
+		const d = o.detail;
+		if (typeof d === 'string' && d.trim()) return d;
+		if (Array.isArray(d)) {
+			try {
+				return JSON.stringify(d);
+			} catch {
+				return String(d);
+			}
+		}
+		const err = o.error;
+		if (err && typeof err === 'object') {
+			const m = (err as Record<string, unknown>).message;
+			if (typeof m === 'string' && m.trim()) return m;
+		}
+		if (typeof err === 'string' && err.trim()) return err;
+		try {
+			return JSON.stringify(body);
+		} catch {
+			return String(body);
+		}
+	}
+	return `${res.status} ${res.statusText || 'TTS error'}`;
+}
+
 export const synthesizeOpenAISpeech = async (
 	token: string = '',
 	speaker: string = 'alloy',
 	text: string = '',
 	model?: string
 ) => {
-	let error = null;
-
 	const res = await fetch(`${AUDIO_API_BASE_URL}/speech`, {
 		method: 'POST',
 		credentials: 'include',
@@ -129,20 +154,24 @@ export const synthesizeOpenAISpeech = async (
 			voice: speaker,
 			...(model && { model })
 		})
-	})
-		.then(async (res) => {
-			if (!res.ok) throw await res.json();
-			return res;
-		})
-		.catch((err) => {
-			error = err.detail;
-			console.error(err);
+	});
 
-			return null;
-		});
-
-	if (error) {
-		throw error;
+	if (!res.ok) {
+		const raw = await res.text();
+		let parsed: unknown = null;
+		if (raw) {
+			try {
+				parsed = JSON.parse(raw);
+			} catch {
+				parsed = null;
+			}
+		}
+		const msg = parsed
+			? ttsErrorMessage(res, parsed)
+			: raw?.trim()
+				? raw.slice(0, 2000)
+				: ttsErrorMessage(res, null);
+		throw new Error(msg);
 	}
 
 	return res;

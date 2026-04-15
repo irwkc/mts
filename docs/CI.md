@@ -6,8 +6,7 @@
 
 Чтобы workflow попал в репозиторий:
 
-1. Создайте в GitHub файл **`.github/workflows/gpthub-pytest.yml`** (кнопка **Add file** → содержимое ниже), либо выполните `git push` с токеном, у которого есть scope **workflow**, либо используйте **SSH** (`git@github.com:…`).
-
+1. Создайте в GitHub файл `**.github/workflows/gpthub-pytest.yml**` (кнопка **Add file** → содержимое ниже), либо выполните `git push` с токеном, у которого есть scope **workflow**, либо используйте **SSH** (`git@github.com:…`).
 2. После merge workflow будет в списке **Actions** → **gpthub-gateway tests** (также доступен ручной запуск **Run workflow**).
 
 ### Содержимое `.github/workflows/gpthub-pytest.yml`
@@ -57,7 +56,7 @@ jobs:
 
 ### Поведение
 
-- **Когда:** push / PR в `main`, если менялись `gpthub-gateway/**` или сам workflow.
+- **Когда:** push / PR в `main`, если менялись `gpthub-gateway/`** или сам workflow.
 - **Ручной запуск:** `workflow_dispatch` в UI Actions.
 
 ### Если HTTPS push отклоняет workflow

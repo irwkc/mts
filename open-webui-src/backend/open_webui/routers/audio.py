@@ -398,9 +398,21 @@ async def speech(request: Request, user=Depends(get_verified_user)):
                 try:
                     res = await r.json()
                     if 'error' in res:
-                        detail = f'External: {res["error"]}'
+                        err = res['error']
+                        if isinstance(err, dict):
+                            msg = err.get('message') or err.get('code') or err
+                            detail = f'External: {msg}'
+                        else:
+                            detail = f'External: {err}'
+                    elif 'detail' in res:
+                        d = res['detail']
+                        detail = f'External: {d}'
                 except Exception:
-                    detail = f'External: {e}'
+                    try:
+                        txt = (await r.text())[:2000]
+                        detail = txt if txt.strip() else f'External: {e}'
+                    except Exception:
+                        detail = f'External: {e}'
 
             raise HTTPException(
                 status_code=status_code,

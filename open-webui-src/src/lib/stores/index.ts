@@ -100,6 +100,19 @@ export const showEmbeds = writable(false);
 export const showOverview = writable(false);
 export const showArtifacts = writable(false);
 export const showCallOverlay = writable(false);
+
+/** Текст ответа ассистента в голосовом режиме (основная лента чата при этом показывает только подсказку). */
+export type VoiceCallAssistantTranscript = {
+	id: string | null;
+	text: string;
+	done: boolean;
+};
+
+export const voiceCallAssistantTranscript = writable<VoiceCallAssistantTranscript>({
+	id: null,
+	text: '',
+	done: true
+});
 export const showFileNav = writable(false);
 export const showFileNavPath: Writable<string | null> = writable(null);
 export const showFileNavDir: Writable<string | null> = writable(null);

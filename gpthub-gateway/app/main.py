@@ -507,6 +507,17 @@ async def images_edits(request: Request) -> Response:
 @app.post("/v1/audio/speech")
 async def audio_speech(request: Request) -> Response:
     body = await request.json()
+    if not isinstance(body, dict):
+        return JSONResponse(
+            {"error": {"message": "JSON object required", "type": "invalid_request"}},
+            status_code=400,
+        )
+    om = (settings.tts_override_model or "").strip()
+    if om:
+        body = {**body, "model": om}
+    ov = (settings.tts_override_voice or "").strip()
+    if ov:
+        body = {**body, "voice": ov}
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
             r = await client.post(
@@ -517,9 +528,18 @@ async def audio_speech(request: Request) -> Response:
                 },
                 content=json.dumps(body),
             )
+        if r.status_code >= 400:
+            err_n = max(500, int(settings.log_upstream_error_chars))
+            logger.warning(
+                "MWS TTS POST /audio/speech -> HTTP %s body[:%s]=%r",
+                r.status_code,
+                err_n,
+                (r.text or "")[:err_n],
+            )
         ct = r.headers.get("content-type", "application/octet-stream")
         return Response(content=r.content, status_code=r.status_code, media_type=ct)
     except Exception as e:
+        logger.exception("TTS proxy failed: %s", e)
         return JSONResponse(
             {"error": {"message": str(e), "type": "gateway_error"}},
             status_code=502,

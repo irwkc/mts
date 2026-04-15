@@ -86,6 +86,27 @@ curl -sS -N --max-time 90 \
   | head -15
 
 echo ""
+if [[ "${USE_REAL_MWS:-}" != "1" ]]; then
+  echo "=== TTS через шлюз (mock MWS отдаёт короткий MP3) ==="
+  TTS_OUT="$(mktemp -t gpthub-tts.XXXXXX.mp3)"
+  HTTP_CODE=$(curl -sS -o "$TTS_OUT" -w "%{http_code}" --max-time 30 \
+    -X POST http://127.0.0.1:8081/v1/audio/speech \
+    -H "Authorization: Bearer $KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"model":"tts-1","input":"тест","voice":"alloy"}') || true
+  if [[ "$HTTP_CODE" == "200" ]] && [[ -s "$TTS_OUT" ]]; then
+    echo "TTS OK: HTTP $HTTP_CODE, размер $(wc -c <"$TTS_OUT") байт, тип: $(file -b "$TTS_OUT" | head -1)"
+  else
+    echo "TTS FAIL: HTTP ${HTTP_CODE:-?}, файл: $TTS_OUT"
+    rm -f "$TTS_OUT"
+    exit 1
+  fi
+  rm -f "$TTS_OUT"
+else
+  echo "=== TTS пропущен (USE_REAL_MWS=1 — проверьте вручную или verify-tz-stack) ==="
+fi
+
+echo ""
 echo "=== полная проверка против реального MWS (опционально) ==="
 echo "  USE_REAL_MWS=1 bash scripts/run-local-docker.sh"
 echo "  bash scripts/verify-gpthub-stack.sh"

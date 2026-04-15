@@ -6,6 +6,9 @@ __pycache__/
 *.sqlite3
 .DS_Store
 
+# Локальный клон task-repo для merge-to-gitlab/go.sh
+merge-to-gitlab/work/
+
 # Локальные тяжёлые вложения (при необходимости уберите строки и закоммитьте)
 *.pdf
 *.xlsx
