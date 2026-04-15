@@ -71,6 +71,8 @@ from app.web_tools import (
     search_query_from_text,
     should_run_deep_research,
     should_run_web_search,
+    strip_trailing_openwebui_follow_ups_json,
+    strip_trailing_openwebui_queries_json,
     try_parse_openwebui_follow_ups_json,
     try_parse_openwebui_queries_json,
     web_search_ddg,
@@ -90,14 +92,20 @@ def _normalize_assistant_message_content(msg: dict[str, Any]) -> None:
     if isinstance(c, str):
         if not c.strip():
             _merge_reasoning_text_into_assistant(msg)
-        return
-    if isinstance(c, list):
+    elif isinstance(c, list):
         msg["content"] = openai_content_to_text(c, for_delta=False)
     elif c is None:
         msg["content"] = ""
 
     if not (isinstance(msg.get("content"), str) and (msg.get("content") or "").strip()):
         _merge_reasoning_text_into_assistant(msg)
+
+    if isinstance(msg.get("content"), str):
+        t = msg["content"]
+        t = strip_trailing_openwebui_follow_ups_json(
+            strip_trailing_openwebui_queries_json(t)
+        )
+        msg["content"] = t
 
 
 def _ensure_delta_content_for_client(delta: dict[str, Any]) -> None:
@@ -163,6 +171,21 @@ def _patch_stream_chunk_for_ui(j: dict[str, Any]) -> None:
                     if isinstance(v, str) and v:
                         delta["content"] = v
                         break
+
+    c = delta.get("content")
+    if isinstance(c, str):
+        s = strip_trailing_openwebui_follow_ups_json(
+            strip_trailing_openwebui_queries_json(c)
+        )
+        if s != c:
+            delta["content"] = s
+    elif isinstance(c, list):
+        plain = openai_content_to_text(c, for_delta=True)
+        s = strip_trailing_openwebui_follow_ups_json(
+            strip_trailing_openwebui_queries_json(plain)
+        )
+        if s != plain:
+            delta["content"] = s
 
 
 QUERY_JSON_LEAK_INSTRUCTION = (

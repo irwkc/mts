@@ -253,6 +253,42 @@ def try_parse_openwebui_queries_json(text: str) -> list[str] | None:
     return [str(x).strip() for x in qs]
 
 
+def strip_trailing_openwebui_follow_ups_json(text: str) -> str:
+    """Убирает из конца строки объект {\"follow_ups\": [...] } (утечка в текст чата)."""
+    if not text or '"follow_ups"' not in text:
+        return text
+    bracket_start = text.rfind("{")
+    bracket_end = text.rfind("}")
+    if bracket_start == -1 or bracket_end < bracket_start:
+        return text
+    blob = text[bracket_start : bracket_end + 1]
+    try:
+        obj = json.loads(blob)
+    except json.JSONDecodeError:
+        return text
+    if not isinstance(obj, dict) or set(obj.keys()) != {"follow_ups"}:
+        return text
+    return text[:bracket_start].rstrip()
+
+
+def strip_trailing_openwebui_queries_json(text: str) -> str:
+    """Убирает хвост {\"queries\": [...] } (утечка query-generation Open WebUI)."""
+    if not text or '"queries"' not in text:
+        return text
+    bracket_start = text.rfind("{")
+    bracket_end = text.rfind("}")
+    if bracket_start == -1 or bracket_end < bracket_start:
+        return text
+    blob = text[bracket_start : bracket_end + 1]
+    try:
+        obj = json.loads(blob)
+    except json.JSONDecodeError:
+        return text
+    if not isinstance(obj, dict) or set(obj.keys()) != {"queries"}:
+        return text
+    return text[:bracket_start].rstrip()
+
+
 def try_parse_openwebui_follow_ups_json(text: str) -> list[str] | None:
     """Open WebUI follow-up generation: {\"follow_ups\": [...] } без других ключей."""
     t = (text or "").strip()
