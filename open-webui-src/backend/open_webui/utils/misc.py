@@ -872,8 +872,8 @@ def strict_match_mime_type(supported: list[str] | str, header: str) -> Optional[
         supported = [s for s in supported if s.strip() and '/' in s]
 
         if len(supported) == 0:
-            # Default to common types if none are specified
-            supported = ['audio/*', 'video/webm']
+            # Default: аудио и видео с дорожкой звука (Whisper / OpenAI STT принимают mp4 и др.)
+            supported = ['audio/*', 'video/*']
 
         match = mimeparse.best_match(supported, header)
         if not match:

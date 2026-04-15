@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import time
@@ -214,6 +215,71 @@ def image_search_ddg_urls(query: str, max_results: int = 24) -> list[str]:
             if len(urls) >= max_results:
                 break
     return urls[:max_results]
+
+
+def try_parse_openwebui_queries_json(text: str) -> list[str] | None:
+    """Только ответы вида Open WebUI query-generation: {\"queries\": [...] } без других ключей.
+
+    Возвращает None, если это не такой объект; пустой список — для {\"queries\": []}.
+    """
+    t = (text or "").strip()
+    if not t:
+        return None
+    if t.startswith("```"):
+        lines = t.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        t = "\n".join(lines).strip()
+    bracket_start = t.rfind("{")
+    bracket_end = t.rfind("}") + 1
+    if bracket_start == -1 or bracket_end <= bracket_start:
+        return None
+    try:
+        blob = t[bracket_start:bracket_end]
+        obj = json.loads(blob)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    if set(obj.keys()) != {"queries"}:
+        return None
+    qs = obj.get("queries")
+    if not isinstance(qs, list):
+        return None
+    return [str(x).strip() for x in qs]
+
+
+def try_parse_openwebui_follow_ups_json(text: str) -> list[str] | None:
+    """Open WebUI follow-up generation: {\"follow_ups\": [...] } без других ключей."""
+    t = (text or "").strip()
+    if not t:
+        return None
+    if t.startswith("```"):
+        lines = t.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        t = "\n".join(lines).strip()
+    bracket_start = t.rfind("{")
+    bracket_end = t.rfind("}") + 1
+    if bracket_start == -1 or bracket_end <= bracket_start:
+        return None
+    try:
+        blob = t[bracket_start:bracket_end]
+        obj = json.loads(blob)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    if set(obj.keys()) != {"follow_ups"}:
+        return None
+    fu = obj.get("follow_ups")
+    if not isinstance(fu, list):
+        return None
+    return [str(x).strip() for x in fu]
 
 
 def search_query_from_text(last_user_text: str) -> str:

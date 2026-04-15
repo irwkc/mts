@@ -4,6 +4,7 @@ OpenAI-совместимый шлюз: MWS GPT + автроутер, памят
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import time
@@ -72,6 +73,8 @@ from app.web_tools import (
     search_query_from_text,
     should_run_deep_research,
     should_run_web_search,
+    try_parse_openwebui_follow_ups_json,
+    try_parse_openwebui_queries_json,
     web_search_ddg,
 )
 
@@ -215,6 +218,72 @@ def _patch_stream_chunk_for_ui(j: dict[str, Any]) -> None:
                     if isinstance(v, str) and v:
                         delta["content"] = v
                         break
+
+
+QUERY_JSON_LEAK_INSTRUCTION = (
+    "[Инструкция для модели] Пользователь ждёт обычный связный ответ на языке вопроса. "
+    "Не выводи JSON и не используй поле «queries». Не ограничивайся списком поисковых строк — "
+    "ответь по существу, используя контекст веб-поиска ниже."
+)
+
+FOLLOW_UPS_JSON_LEAK_INSTRUCTION = (
+    "[Инструкция для модели] Не выводи JSON с полем «follow_ups». "
+    "Ответь обычным текстом на запрос пользователя (включая презентации и уточнения). "
+    "Если нужны вопросы пользователю — сформулируй их связным текстом или маркированным списком, без JSON."
+)
+
+
+def _openwebui_json_leak_requires_hold(full: str) -> bool:
+    return (
+        try_parse_openwebui_queries_json(full) is not None
+        or try_parse_openwebui_follow_ups_json(full) is not None
+    )
+
+
+def _leak_queries_for_retry(parsed: list[str], last_text: str) -> list[str]:
+    out = [q for q in parsed if (q or "").strip()]
+    if out:
+        return out[:6]
+    q = search_query_from_text(last_text or "")
+    if (q or "").strip():
+        return [q]
+    lt = (last_text or "").strip()
+    return [lt[:500]] if lt else ["web search"]
+
+
+async def _retry_after_queries_json_leak(
+    *,
+    messages_pre_inject: list[dict[str, Any]],
+    extra_parts: list[str],
+    parsed_queries: list[str],
+    last_text: str,
+    new_body_base: dict[str, Any],
+    rid: str,
+) -> dict[str, Any]:
+    qs = _leak_queries_for_retry(parsed_queries, last_text)
+    leak_blocks = [web_search_ddg(q) for q in qs]
+    leak_fix = "\n\n".join(leak_blocks) + "\n\n" + QUERY_JSON_LEAK_INSTRUCTION
+    merged_extra = "\n\n".join(extra_parts) + "\n\n" + leak_fix
+    retry_messages = _inject_system(copy.deepcopy(messages_pre_inject), merged_extra)
+    retry_body = {**new_body_base, "messages": retry_messages, "stream": False}
+    return await _client.post_json(
+        "/chat/completions", retry_body, log_context=f"rid={rid} queries-json-retry"
+    )
+
+
+async def _retry_after_follow_ups_json_leak(
+    *,
+    messages_pre_inject: list[dict[str, Any]],
+    extra_parts: list[str],
+    new_body_base: dict[str, Any],
+    rid: str,
+) -> dict[str, Any]:
+    merged_extra = "\n\n".join(extra_parts) + "\n\n" + FOLLOW_UPS_JSON_LEAK_INSTRUCTION
+    retry_messages = _inject_system(copy.deepcopy(messages_pre_inject), merged_extra)
+    retry_body = {**new_body_base, "messages": retry_messages, "stream": False}
+    return await _client.post_json(
+        "/chat/completions", retry_body, log_context=f"rid={rid} follow-ups-json-retry"
+    )
 
 
 def _configure_logging() -> None:
@@ -794,6 +863,7 @@ async def chat_completions(request: Request) -> Response:
         except Exception as e:
             extra_parts.append(f"URL {u}: ошибка загрузки {e}")
 
+    messages_pre_inject = copy.deepcopy(messages)
     messages = _inject_system(messages, "\n\n".join(extra_parts))
     if settings.router_debug:
         messages = inject_router_debug(messages, route_note, resolved_model)
@@ -831,6 +901,52 @@ async def chat_completions(request: Request) -> Response:
                     )
         except Exception as ex:
             logger.debug("normalize assistant: %s", ex)
+        try:
+            for _ in range(4):
+                ch0 = (out.get("choices") or [{}])[0]
+                msg = ch0.get("message")
+                plain = _assistant_content_to_plain(msg) if isinstance(msg, dict) else ""
+                if not isinstance(plain, str):
+                    break
+                leaked_q = try_parse_openwebui_queries_json(plain)
+                if leaked_q is not None:
+                    logger.warning(
+                        "assistant returned only Open WebUI queries JSON; retrying rid=%s",
+                        rid,
+                    )
+                    out = await _retry_after_queries_json_leak(
+                        messages_pre_inject=messages_pre_inject,
+                        extra_parts=extra_parts,
+                        parsed_queries=leaked_q,
+                        last_text=last_text or "",
+                        new_body_base=new_body,
+                        rid=rid,
+                    )
+                    ch0 = (out.get("choices") or [{}])[0]
+                    msg = ch0.get("message")
+                    if isinstance(msg, dict):
+                        _normalize_assistant_message_content(msg)
+                    continue
+                leaked_f = try_parse_openwebui_follow_ups_json(plain)
+                if leaked_f is not None:
+                    logger.warning(
+                        "assistant returned only Open WebUI follow_ups JSON; retrying rid=%s",
+                        rid,
+                    )
+                    out = await _retry_after_follow_ups_json_leak(
+                        messages_pre_inject=messages_pre_inject,
+                        extra_parts=extra_parts,
+                        new_body_base=new_body,
+                        rid=rid,
+                    )
+                    ch0 = (out.get("choices") or [{}])[0]
+                    msg = ch0.get("message")
+                    if isinstance(msg, dict):
+                        _normalize_assistant_message_content(msg)
+                    continue
+                break
+        except Exception as ex:
+            logger.warning("openwebui task-json retry failed: %s", ex, exc_info=True)
         if _memory and last_text:
             try:
                 ch = (out.get("choices") or [{}])[0].get("message", {}).get("content")
@@ -843,6 +959,66 @@ async def chat_completions(request: Request) -> Response:
     async def gen():
         acc: list[str] = []
         done_sent = False
+        mode: str | None = None  # None = undecided, "streaming", "hold"
+        buf: list[str] = []
+
+        async def pump_stream(resp: httpx.Response):
+            nonlocal done_sent, mode, acc
+            async for line in resp.aiter_lines():
+                if not line:
+                    continue
+                out_line = line
+                payload_done = False
+                if line.startswith("data:"):
+                    payload = line[5:].lstrip()
+                    if payload == "[DONE]":
+                        payload_done = True
+                        done_sent = True
+                    else:
+                        try:
+                            j = json.loads(payload)
+                            _patch_stream_chunk_for_ui(j)
+                            delta = (j.get("choices") or [{}])[0].get("delta") or {}
+                            c = _delta_content_to_text(delta)
+                            if c:
+                                acc.append(c)
+                            out_line = f"data: {json.dumps(j, ensure_ascii=False)}"
+                        except json.JSONDecodeError:
+                            pass
+                piece = out_line + "\n\n"
+
+                if mode is None:
+                    buf.append(piece)
+                    full = "".join(acc)
+                    if payload_done:
+                        if _openwebui_json_leak_requires_hold(full):
+                            mode = "hold"
+                        else:
+                            mode = "streaming"
+                            for b in buf:
+                                yield b
+                            buf = []
+                    elif len(full) >= 160:
+                        head = full.lstrip()[:800]
+                        if head.startswith("{") and (
+                            '"queries"' in head or '"follow_ups"' in head
+                        ):
+                            mode = "hold"
+                        else:
+                            mode = "streaming"
+                            for b in buf:
+                                yield b
+                            buf = []
+                    continue
+
+                if mode == "streaming":
+                    yield piece
+                    continue
+
+                if mode == "hold":
+                    buf.append(piece)
+                    continue
+
         async with httpx.AsyncClient(timeout=300.0) as client:
             async with client.stream(
                 "POST",
@@ -865,29 +1041,157 @@ async def chat_completions(request: Request) -> Response:
                     )
                     yield f"data: {json.dumps({'error': {'message': err_text}})}\n\n"
                     return
-                async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    out_line = line
-                    if line.startswith("data:"):
-                        payload = line[5:].lstrip()
-                        if payload == "[DONE]":
-                            done_sent = True
-                            yield "data: [DONE]\n\n"
-                            break
-                        try:
-                            j = json.loads(payload)
-                            _patch_stream_chunk_for_ui(j)
-                            delta = (j.get("choices") or [{}])[0].get("delta") or {}
-                            c = _delta_content_to_text(delta)
-                            if c:
-                                acc.append(c)
-                            out_line = f"data: {json.dumps(j, ensure_ascii=False)}"
-                        except json.JSONDecodeError:
-                            pass
-                    yield out_line + "\n\n"
-                if not done_sent:
-                    yield "data: [DONE]\n\n"
+                async for item in pump_stream(resp):
+                    yield item
+
+        if mode == "hold":
+            full_text = "".join(acc)
+            leaked_q = try_parse_openwebui_queries_json(full_text)
+            if leaked_q is not None:
+                logger.warning(
+                    "stream: assistant returned Open WebUI queries JSON; retrying rid=%s",
+                    rid,
+                )
+                try:
+                    qs = _leak_queries_for_retry(leaked_q, last_text or "")
+                    leak_blocks = [web_search_ddg(q) for q in qs]
+                    leak_fix = "\n\n".join(leak_blocks) + "\n\n" + QUERY_JSON_LEAK_INSTRUCTION
+                    merged_extra = "\n\n".join(extra_parts) + "\n\n" + leak_fix
+                    retry_messages = _inject_system(
+                        copy.deepcopy(messages_pre_inject), merged_extra
+                    )
+                    retry_body = {**new_body, "messages": retry_messages, "stream": True}
+                    acc.clear()
+                    done_sent = False
+                    async with httpx.AsyncClient(timeout=300.0) as client:
+                        async with client.stream(
+                            "POST",
+                            f"{settings.mws_api_base.rstrip('/')}/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {settings.mws_api_key}",
+                                "Content-Type": "application/json",
+                            },
+                            content=json.dumps(retry_body),
+                        ) as resp2:
+                            if resp2.status_code >= 400:
+                                err = await resp2.aread()
+                                err_text = err.decode(errors="replace")
+                                logger.warning(
+                                    "queries-json retry stream HTTP %s: %s",
+                                    resp2.status_code,
+                                    err_text[:500],
+                                )
+                                for b in buf:
+                                    yield b
+                            else:
+                                async for line in resp2.aiter_lines():
+                                    if not line:
+                                        continue
+                                    out_line = line
+                                    if line.startswith("data:"):
+                                        payload = line[5:].lstrip()
+                                        if payload == "[DONE]":
+                                            done_sent = True
+                                        else:
+                                            try:
+                                                j = json.loads(payload)
+                                                _patch_stream_chunk_for_ui(j)
+                                                delta = (j.get("choices") or [{}])[0].get(
+                                                    "delta"
+                                                ) or {}
+                                                c = _delta_content_to_text(delta)
+                                                if c:
+                                                    acc.append(c)
+                                                out_line = f"data: {json.dumps(j, ensure_ascii=False)}"
+                                            except json.JSONDecodeError:
+                                                pass
+                                    yield out_line + "\n\n"
+                                if not done_sent:
+                                    yield "data: [DONE]\n\n"
+                except Exception as ex:
+                    logger.warning(
+                        "stream queries-json retry failed: %s", ex, exc_info=True
+                    )
+                    for b in buf:
+                        yield b
+            elif try_parse_openwebui_follow_ups_json(full_text) is not None:
+                logger.warning(
+                    "stream: assistant returned Open WebUI follow_ups JSON; retrying rid=%s",
+                    rid,
+                )
+                try:
+                    merged_extra = (
+                        "\n\n".join(extra_parts) + "\n\n" + FOLLOW_UPS_JSON_LEAK_INSTRUCTION
+                    )
+                    retry_messages = _inject_system(
+                        copy.deepcopy(messages_pre_inject), merged_extra
+                    )
+                    retry_body = {**new_body, "messages": retry_messages, "stream": True}
+                    acc.clear()
+                    done_sent = False
+                    async with httpx.AsyncClient(timeout=300.0) as client:
+                        async with client.stream(
+                            "POST",
+                            f"{settings.mws_api_base.rstrip('/')}/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {settings.mws_api_key}",
+                                "Content-Type": "application/json",
+                            },
+                            content=json.dumps(retry_body),
+                        ) as resp2:
+                            if resp2.status_code >= 400:
+                                err = await resp2.aread()
+                                err_text = err.decode(errors="replace")
+                                logger.warning(
+                                    "follow-ups-json retry stream HTTP %s: %s",
+                                    resp2.status_code,
+                                    err_text[:500],
+                                )
+                                for b in buf:
+                                    yield b
+                            else:
+                                async for line in resp2.aiter_lines():
+                                    if not line:
+                                        continue
+                                    out_line = line
+                                    if line.startswith("data:"):
+                                        payload = line[5:].lstrip()
+                                        if payload == "[DONE]":
+                                            done_sent = True
+                                        else:
+                                            try:
+                                                j = json.loads(payload)
+                                                _patch_stream_chunk_for_ui(j)
+                                                delta = (j.get("choices") or [{}])[0].get(
+                                                    "delta"
+                                                ) or {}
+                                                c = _delta_content_to_text(delta)
+                                                if c:
+                                                    acc.append(c)
+                                                out_line = f"data: {json.dumps(j, ensure_ascii=False)}"
+                                            except json.JSONDecodeError:
+                                                pass
+                                    yield out_line + "\n\n"
+                                if not done_sent:
+                                    yield "data: [DONE]\n\n"
+                except Exception as ex:
+                    logger.warning(
+                        "stream follow-ups-json retry failed: %s", ex, exc_info=True
+                    )
+                    for b in buf:
+                        yield b
+            else:
+                for b in buf:
+                    yield b
+        elif mode is None:
+            for b in buf:
+                yield b
+            if not done_sent:
+                yield "data: [DONE]\n\n"
+        elif mode == "streaming":
+            if not done_sent:
+                yield "data: [DONE]\n\n"
+
         if not acc:
             logger.warning(
                 "stream ended with no text deltas (model=%s requested=%r); "

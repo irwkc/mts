@@ -282,7 +282,14 @@ async def update_config(request: Request, form_data: OpenAIConfigForm, user=Depe
 async def speech(request: Request, user=Depends(get_verified_user)):
     idx = None
     try:
-        idx = request.app.state.config.OPENAI_API_BASE_URLS.index('https://api.openai.com/v1')
+        urls = request.app.state.config.OPENAI_API_BASE_URLS
+        if not urls:
+            raise ValueError
+        try:
+            idx = urls.index('https://api.openai.com/v1')
+        except ValueError:
+            # Кастомный OpenAI-совместимый шлюз (например gpthub-gateway) — тот же индекс, что и чат.
+            idx = 0
 
         body = await request.body()
         name = hashlib.sha256(body).hexdigest()
