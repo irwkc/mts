@@ -60,6 +60,7 @@ docker compose exec gpthub-gateway sqlite3 /data/memory.sqlite "SELECT COUNT(*) 
 - **502 nginx:** `nginx -t`, `proxy_pass` на 127.0.0.1:3000 и :8081 для нужных `location`.
 - **Картинки 404 с клиента:** выставить `GPTHUB_PUBLIC_BASE_URL` на URL, с которого пользователь открывает чат, или HTTPS домен.
 - **Gateway unhealthy:** `docker compose logs gpthub-gateway --tail=100`, затем при необходимости recreate только gateway.
+- **`curl: (52) Empty reply from server` на POST `/v1/chat/completions`, затем `Connection refused` на `:8081`:** часто **OOM** или падение процесса в контейнере шлюза. Смотрите `docker compose logs gpthub-gateway --tail=200`, на хосте `dmesg | tail -30` (строки `Out of memory` / `Killed process`). Облегчение: в `.env` поставить **`GPTHUB_LOG_LEVEL=INFO`** (вместо DEBUG — меньше объёма логов с телами JSON), при необходимости добавить swap или увеличить RAM; после `git pull` в compose для шлюза задан **`shm_size: 256mb`**. Дождитесь `healthy` и повторите запрос.
 
 ## Ограничения
 

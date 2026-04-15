@@ -23,6 +23,27 @@ if [[ -z "${KEY:-}" ]]; then
   exit 1
 fi
 
+# Ждём /health (после OOM/restart шлюз поднимается не сразу).
+wait_gateway() {
+  local max="${1:-90}"
+  local i=0
+  while [[ $i -lt "$max" ]]; do
+    if curl -sf --max-time 5 "$GW/health" >/dev/null 2>&1; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  echo "FAIL: за ${max}s не отвечает $GW/health (контейнер gpthub-gateway не поднялся?)"
+  docker compose ps 2>/dev/null || true
+  return 1
+}
+
+curl_chat_hint() {
+  echo "    (curl 52 «Empty reply» / 7 «Connection refused»: часто OOM или падение uvicorn;"
+  echo "     смотрите: docker compose logs gpthub-gateway --tail=120; dmesg | tail | grep -i oom)"
+}
+
 echo "=== Шаг 1: инфраструктура ==="
 docker compose ps || true
 
@@ -57,16 +78,25 @@ docker system df 2>/dev/null || true
 
 echo ""
 echo "=== Шаг 2: функциональные curl (stream=false) ==="
+wait_gateway 120 || exit 1
 
 run_chat() {
   local name="$1"
   local body="$2"
+  local maxt="${3:-90}"
   echo "--- $name ---"
-  local resp
-  resp=$(curl -sS --max-time "${3:-90}" -X POST "$GW/v1/chat/completions" \
+  wait_gateway 30 || { echo "FAIL: шлюз недоступен перед запросом"; curl_chat_hint; return 0; }
+  local resp curl_ec=0
+  resp=$(curl -sS --max-time "$maxt" -X POST "$GW/v1/chat/completions" \
     -H "Authorization: Bearer $KEY" \
     -H "Content-Type: application/json" \
-    -d "$body") || true
+    -d "$body") || curl_ec=$?
+  if [[ "$curl_ec" != "0" ]]; then
+    echo "FAIL: curl exit=$curl_ec"
+    curl_chat_hint
+    wait_gateway 60 || true
+    return 0
+  fi
   if echo "$resp" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
     echo "$resp" | python3 -c "
 import sys, json
@@ -82,31 +112,47 @@ else:
     echo "FAIL: invalid JSON"
     echo "$resp" | head -c 500
     echo
+    curl_chat_hint
+    wait_gateway 60 || true
   fi
 }
 
-run_chat "A текст (ТЗ1)" '{"model":"gpthub-auto","stream":false,"messages":[{"role":"user","content":"В двух предложениях объясни HTTP-код 404."}]}'
+# Короткий ответ: меньше нагрузка на логи/память при DEBUG.
+run_chat "A текст (ТЗ1)" '{"model":"gpthub-auto","stream":false,"max_tokens":512,"messages":[{"role":"user","content":"В двух предложениях объясни HTTP-код 404."}]}' 120
 
-run_chat "B картинка (ТЗ3)" '{"model":"gpthub-auto","stream":false,"messages":[{"role":"user","content":"Нарисуй синий круг с буквой G, плоский стиль."}]}' 120
+run_chat "B картинка (ТЗ3)" '{"model":"gpthub-auto","stream":false,"max_tokens":256,"messages":[{"role":"user","content":"Нарисуй синий круг с буквой G, плоский стиль."}]}' 120
 
-run_chat "C веб-поиск (ТЗ7)" '{"model":"gpthub-auto","stream":false,"messages":[{"role":"user","content":"Найди в интернете: какая последняя стабильная версия Python? Дай цифру и источник."}]}' 90
+run_chat "C веб-поиск (ТЗ7)" '{"model":"gpthub-auto","stream":false,"max_tokens":512,"messages":[{"role":"user","content":"Найди в интернете: какая последняя стабильная версия Python? Дай цифру и источник."}]}' 90
 
-run_chat "D URL (ТЗ8)" '{"model":"gpthub-auto","stream":false,"messages":[{"role":"user","content":"Прочитай https://example.com и скажи что в заголовке страницы."}]}' 45
+run_chat "D URL (ТЗ8)" '{"model":"gpthub-auto","stream":false,"max_tokens":256,"messages":[{"role":"user","content":"Прочитай https://example.com и скажи что в заголовке страницы."}]}' 45
 
 echo "--- E память (ТЗ9) два запроса ---"
-curl -sS --max-time 60 -X POST "$GW/v1/chat/completions" \
+wait_gateway 30 || true
+if ! resp_e1=$(curl -sS --max-time 60 -X POST "$GW/v1/chat/completions" \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-  -d '{"model":"gpthub-auto","stream":false,"messages":[{"role":"user","content":"Запомни: тестовый_ключ_проверки_памяти=ALPHA42"}]}' | python3 -c "import sys,json; r=json.load(sys.stdin); print('save:', (r.get('choices') or [{}])[0].get('message',{}).get('content','')[:120])"
+  -d '{"model":"gpthub-auto","stream":false,"max_tokens":256,"messages":[{"role":"user","content":"Запомни: тестовый_ключ_проверки_памяти=ALPHA42"}]}'); then
+  echo "save: FAIL (curl)"
+  curl_chat_hint
+else
+  echo "$resp_e1" | python3 -c "import sys,json; r=json.load(sys.stdin); print('save:', (r.get('choices') or [{}])[0].get('message',{}).get('content','')[:120])" || echo "save: invalid JSON"
+fi
 sleep 2
-curl -sS --max-time 60 -X POST "$GW/v1/chat/completions" \
+wait_gateway 30 || true
+if ! resp_e2=$(curl -sS --max-time 60 -X POST "$GW/v1/chat/completions" \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-  -d '{"model":"gpthub-auto","stream":false,"messages":[{"role":"user","content":"Какое значение у тестового ключа тестовый_ключ_проверки_памяти?"}]}' | python3 -c "import sys,json; r=json.load(sys.stdin); t=(r.get('choices') or [{}])[0].get('message',{}).get('content',''); print('recall OK' if 'ALPHA42' in t else 'recall FAIL', t[:200])"
+  -d '{"model":"gpthub-auto","stream":false,"max_tokens":256,"messages":[{"role":"user","content":"Какое значение у тестового ключа тестовый_ключ_проверки_памяти?"}]}'); then
+  echo "recall: FAIL (curl)"
+  curl_chat_hint
+else
+  echo "$resp_e2" | python3 -c "import sys,json; r=json.load(sys.stdin); t=(r.get('choices') or [{}])[0].get('message',{}).get('content',''); print('recall OK' if 'ALPHA42' in t else 'recall FAIL', t[:200])" || echo "recall: invalid JSON"
+fi
 
-run_chat "F Deep Research (ТЗ13)" '{"model":"gpthub-auto","stream":false,"messages":[{"role":"user","content":"Сделай ресерч по теме: влияние температуры на LLM. Введение, 3 тезиса, вывод."}]}' 120
+run_chat "F Deep Research (ТЗ13)" '{"model":"gpthub-auto","stream":false,"max_tokens":2048,"messages":[{"role":"user","content":"Сделай ресерч по теме: влияние температуры на LLM. Введение, 3 тезиса, вывод."}]}' 120
 
-run_chat "G PPTX (ТЗ14)" '{"model":"gpthub-auto","stream":false,"messages":[{"role":"user","content":"Сделай презентацию на 3 слайда про Python."}]}' 120
+run_chat "G PPTX (ТЗ14)" '{"model":"gpthub-auto","stream":false,"max_tokens":256,"messages":[{"role":"user","content":"Сделай презентацию на 3 слайда про Python."}]}' 120
 
 echo "--- H TTS (ТЗ15) ---"
+wait_gateway 30 || true
 curl -sS --max-time 60 -X POST "$GW/v1/audio/speech" \
   -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
@@ -115,29 +161,45 @@ curl -sS --max-time 60 -X POST "$GW/v1/audio/speech" \
 
 echo "--- I ASR: TTS→MP3→transcribe (ТЗ2/4) ---"
 if [[ -f /tmp/gpthub_tts_test.mp3 ]]; then
-  curl -sS --max-time 90 -X POST "$GW/v1/audio/transcriptions" \
+  wait_gateway 30 || true
+  if ! resp_asr=$(curl -sS --max-time 90 -X POST "$GW/v1/audio/transcriptions" \
     -H "Authorization: Bearer $KEY" \
     -F "file=@/tmp/gpthub_tts_test.mp3;type=audio/mpeg" \
-    -F "model=${ASR_MODEL:-whisper-medium}" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('text', r)[:300])" || echo "ASR FAIL"
+    -F "model=${ASR_MODEL:-whisper-medium}"); then
+    echo "ASR FAIL (curl)"
+    curl_chat_hint
+  else
+    echo "$resp_asr" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('text', r)[:300])" || echo "ASR invalid JSON"
+  fi
 else
   echo "пропуск: нет /tmp/gpthub_tts_test.mp3"
 fi
 
 echo "--- J ручная модель (ТЗ11) ---"
-MANUAL=$(curl -sSf --max-time 90 -H "Authorization: Bearer $KEY" "$GW/v1/models" | python3 -c "import sys,json; d=json.load(sys.stdin); ids=[m['id'] for m in d.get('data',[]) if m['id']!='gpthub-auto']; print(ids[0] if ids else '')")
+wait_gateway 30 || true
+if ! models_j=$(curl -sSf --max-time 90 -H "Authorization: Bearer $KEY" "$GW/v1/models"); then
+  echo "FAIL: models curl"
+else
+MANUAL=$(echo "$models_j" | python3 -c "import sys,json; d=json.load(sys.stdin); ids=[m['id'] for m in d.get('data',[]) if m['id']!='gpthub-auto']; print(ids[0] if ids else '')")
 if [[ -z "$MANUAL" ]]; then
   echo "FAIL: нет моделей кроме gpthub-auto"
 else
   echo "model=$MANUAL"
-  curl -sS --max-time 60 -X POST "$GW/v1/chat/completions" \
+  if ! resp_j=$(curl -sS --max-time 60 -X POST "$GW/v1/chat/completions" \
     -H "Authorization: Bearer $KEY" \
     -H "Content-Type: application/json" \
-    -d "{\"model\":\"$MANUAL\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"Ответь одним словом: тест\"}]}" \
-    | python3 -c "import sys,json; r=json.load(sys.stdin); e=r.get('error'); print('FAIL', e) if e else print('OK', (r.get('choices') or [{}])[0].get('message',{}).get('content','')[:80])"
+    -d "{\"model\":\"$MANUAL\",\"stream\":false,\"max_tokens\":64,\"messages\":[{\"role\":\"user\",\"content\":\"Ответь одним словом: тест\"}]}"); then
+    echo "FAIL curl"
+    curl_chat_hint
+  else
+    echo "$resp_j" | python3 -c "import sys,json; r=json.load(sys.stdin); e=r.get('error'); print('FAIL', e) if e else print('OK', (r.get('choices') or [{}])[0].get('message',{}).get('content','')[:80])" || echo "invalid JSON"
+  fi
+fi
 fi
 
 echo ""
-echo "=== Логи шлюза (последние 80 строк, ошибки) ==="
-docker compose logs gpthub-gateway --tail=80 2>/dev/null | grep -E "ERROR|CRITICAL|Traceback|401|502|503" || echo "(нет совпадений или сервис не найден)"
+echo "=== Логи шлюза (последние 120 строк) ==="
+docker compose logs gpthub-gateway --tail=120 2>/dev/null || echo "(логи недоступны)"
 
+echo ""
 echo "Готово."

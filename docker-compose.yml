@@ -38,6 +38,8 @@ services:
       GPTHUB_LOG_LEVEL: ${GPTHUB_LOG_LEVEL:-DEBUG}
     volumes:
       - gpthub-data:/data
+    # Снижает редкие сбои нативных библиотек (embedding/chroma) на малом /dev/shm в контейнере
+    shm_size: "256mb"
     ports:
       - "8081:8080"
     restart: unless-stopped
