@@ -50,6 +50,7 @@ from open_webui.models.groups import Groups
 from open_webui.utils.misc import (
     calculate_sha256,
     cleanup_response,
+    filter_proxy_stream_headers,
     stream_wrapper,
 )
 from open_webui.utils.payload import (
@@ -155,7 +156,7 @@ async def send_post_request(
 
         r.raise_for_status()  # Raises an error for bad responses (4xx, 5xx)
         if stream:
-            response_headers = dict(r.headers)
+            response_headers = filter_proxy_stream_headers(r.headers)
 
             if content_type:
                 response_headers['Content-Type'] = content_type

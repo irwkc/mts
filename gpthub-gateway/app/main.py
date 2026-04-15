@@ -308,6 +308,18 @@ def _mws_upstream_stream_headers() -> dict[str, str]:
     }
 
 
+def _sse_transport_error_chunk(exc: httpx.TransportError) -> str:
+    """Finish SSE cleanly when MWS closes the body early (avoids client TransferEncodingError)."""
+    return (
+        "data: "
+        + json.dumps(
+            {"error": {"message": f"Upstream stream interrupted: {exc}"}},
+            ensure_ascii=False,
+        )
+        + "\n\n"
+    )
+
+
 _static_root = settings.data_dir / "static"
 _static_root.mkdir(parents=True, exist_ok=True)
 (_static_root / "presentations").mkdir(parents=True, exist_ok=True)
@@ -1048,28 +1060,36 @@ async def chat_completions(request: Request) -> Response:
                                 for b in buf:
                                     yield b
                             else:
-                                async for line in resp2.aiter_lines():
-                                    if not line:
-                                        continue
-                                    out_line = line
-                                    if line.startswith("data:"):
-                                        payload = line[5:].lstrip()
-                                        if payload == "[DONE]":
-                                            done_sent = True
-                                        else:
-                                            try:
-                                                j = json.loads(payload)
-                                                _patch_stream_chunk_for_ui(j)
-                                                delta = (j.get("choices") or [{}])[0].get(
-                                                    "delta"
-                                                ) or {}
-                                                c = delta_text(delta)
-                                                if c:
-                                                    acc.append(c)
-                                                out_line = f"data: {json.dumps(j, ensure_ascii=False)}"
-                                            except json.JSONDecodeError:
-                                                pass
-                                    yield out_line + "\n\n"
+                                try:
+                                    async for line in resp2.aiter_lines():
+                                        if not line:
+                                            continue
+                                        out_line = line
+                                        if line.startswith("data:"):
+                                            payload = line[5:].lstrip()
+                                            if payload == "[DONE]":
+                                                done_sent = True
+                                            else:
+                                                try:
+                                                    j = json.loads(payload)
+                                                    _patch_stream_chunk_for_ui(j)
+                                                    delta = (j.get("choices") or [{}])[
+                                                        0
+                                                    ].get("delta") or {}
+                                                    c = delta_text(delta)
+                                                    if c:
+                                                        acc.append(c)
+                                                    out_line = f"data: {json.dumps(j, ensure_ascii=False)}"
+                                                except json.JSONDecodeError:
+                                                    pass
+                                        yield out_line + "\n\n"
+                                except httpx.TransportError as ex:
+                                    logger.warning(
+                                        "queries-json retry stream TransportError: %s",
+                                        ex,
+                                        exc_info=True,
+                                    )
+                                    yield _sse_transport_error_chunk(ex)
                                 if not done_sent:
                                     yield "data: [DONE]\n\n"
                 except Exception as ex:
@@ -1111,28 +1131,36 @@ async def chat_completions(request: Request) -> Response:
                                 for b in buf:
                                     yield b
                             else:
-                                async for line in resp2.aiter_lines():
-                                    if not line:
-                                        continue
-                                    out_line = line
-                                    if line.startswith("data:"):
-                                        payload = line[5:].lstrip()
-                                        if payload == "[DONE]":
-                                            done_sent = True
-                                        else:
-                                            try:
-                                                j = json.loads(payload)
-                                                _patch_stream_chunk_for_ui(j)
-                                                delta = (j.get("choices") or [{}])[0].get(
-                                                    "delta"
-                                                ) or {}
-                                                c = delta_text(delta)
-                                                if c:
-                                                    acc.append(c)
-                                                out_line = f"data: {json.dumps(j, ensure_ascii=False)}"
-                                            except json.JSONDecodeError:
-                                                pass
-                                    yield out_line + "\n\n"
+                                try:
+                                    async for line in resp2.aiter_lines():
+                                        if not line:
+                                            continue
+                                        out_line = line
+                                        if line.startswith("data:"):
+                                            payload = line[5:].lstrip()
+                                            if payload == "[DONE]":
+                                                done_sent = True
+                                            else:
+                                                try:
+                                                    j = json.loads(payload)
+                                                    _patch_stream_chunk_for_ui(j)
+                                                    delta = (j.get("choices") or [{}])[
+                                                        0
+                                                    ].get("delta") or {}
+                                                    c = delta_text(delta)
+                                                    if c:
+                                                        acc.append(c)
+                                                    out_line = f"data: {json.dumps(j, ensure_ascii=False)}"
+                                                except json.JSONDecodeError:
+                                                    pass
+                                        yield out_line + "\n\n"
+                                except httpx.TransportError as ex:
+                                    logger.warning(
+                                        "follow-ups-json retry stream TransportError: %s",
+                                        ex,
+                                        exc_info=True,
+                                    )
+                                    yield _sse_transport_error_chunk(ex)
                                 if not done_sent:
                                     yield "data: [DONE]\n\n"
                 except Exception as ex:

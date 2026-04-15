@@ -52,6 +52,7 @@ from open_webui.utils.payload import (
 from open_webui.utils.misc import (
     cleanup_response,
     convert_logit_bias_input_to_json,
+    filter_proxy_stream_headers,
     stream_chunks_handler,
     stream_wrapper,
 )
@@ -1193,7 +1194,7 @@ async def generate_chat_completion(
             return StreamingResponse(
                 stream_wrapper(r, session, stream_chunks_handler),
                 status_code=r.status,
-                headers=dict(r.headers),
+                headers=filter_proxy_stream_headers(r.headers),
             )
         else:
             try:
@@ -1280,7 +1281,7 @@ async def embeddings(request: Request, form_data: dict, user):
             return StreamingResponse(
                 stream_wrapper(r, session),
                 status_code=r.status,
-                headers=dict(r.headers),
+                headers=filter_proxy_stream_headers(r.headers),
             )
         else:
             try:
@@ -1396,7 +1397,7 @@ async def responses(
             return StreamingResponse(
                 stream_wrapper(r, session),
                 status_code=r.status,
-                headers=dict(r.headers),
+                headers=filter_proxy_stream_headers(r.headers),
             )
         else:
             try:
@@ -1502,7 +1503,7 @@ async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
             return StreamingResponse(
                 stream_wrapper(r, session),
                 status_code=r.status,
-                headers=dict(r.headers),
+                headers=filter_proxy_stream_headers(r.headers),
             )
         else:
             try:

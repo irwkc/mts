@@ -23,6 +23,8 @@ from open_webui.socket.main import (
 )
 from open_webui.functions import generate_function_chat_completion
 
+from open_webui.utils.misc import filter_proxy_stream_headers
+
 from open_webui.routers.openai import (
     generate_chat_completion as generate_openai_chat_completion,
 )
@@ -287,7 +289,7 @@ async def generate_chat_completion(
                 response.headers['content-type'] = 'text/event-stream'
                 return StreamingResponse(
                     convert_streaming_response_ollama_to_openai(response),
-                    headers=dict(response.headers),
+                    headers=filter_proxy_stream_headers(response.headers),
                     background=response.background,
                 )
             else:

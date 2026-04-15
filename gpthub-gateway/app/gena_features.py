@@ -1099,16 +1099,19 @@ async def stream_deep_research(
                 )
                 yield "data: [DONE]\n\n"
                 return
-            async for line in resp.aiter_lines():
-                if not line:
-                    continue
-                if line.startswith("data:"):
-                    pl = line[5:].lstrip()
-                    if pl == "[DONE]":
-                        done = True
-                        yield "data: [DONE]\n\n"
-                        break
-                    yield line + "\n\n"
+            try:
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    if line.startswith("data:"):
+                        pl = line[5:].lstrip()
+                        if pl == "[DONE]":
+                            done = True
+                            yield "data: [DONE]\n\n"
+                            break
+                        yield line + "\n\n"
+            except httpx.TransportError as ex:
+                yield sse_delta(f"**Обрыв потока MWS:** {ex}\n\n")
             if not done:
                 yield "data: [DONE]\n\n"
 

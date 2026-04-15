@@ -910,6 +910,37 @@ async def cleanup_response(
         await session.close()
 
 
+# Hop-by-hop / body framing from upstream must not be copied when Open WebUI
+# re-streams through Starlette (chunked SSE). Mismatched Content-Length or TE
+# causes aiohttp clients to raise ClientPayloadError / TransferEncodingError.
+_PROXY_STREAM_STRIP_HEADERS = frozenset(
+    (
+        'content-length',
+        'transfer-encoding',
+        'content-encoding',
+        'connection',
+        'keep-alive',
+        'proxy-connection',
+        'proxy-authenticate',
+        'proxy-authorization',
+        'te',
+        'trailer',
+        'upgrade',
+    )
+)
+
+
+def filter_proxy_stream_headers(headers) -> dict[str, str]:
+    """Return headers safe to pass to StreamingResponse when proxying a stream."""
+    if not headers:
+        return {}
+    return {
+        str(k): str(v)
+        for k, v in headers.items()
+        if k.lower() not in _PROXY_STREAM_STRIP_HEADERS
+    }
+
+
 async def stream_wrapper(response, session, content_handler=None):
     """
     Wrap a stream to ensure cleanup happens even if streaming is interrupted.
