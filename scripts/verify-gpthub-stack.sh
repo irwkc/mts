@@ -27,15 +27,19 @@ echo "=== Шаг 1: инфраструктура ==="
 docker compose ps || true
 
 echo -n "1.2 health: "
-curl -sf "$GW/health" || { echo "FAIL"; exit 1; }
+curl -sSf --max-time 15 "$GW/health" || { echo "FAIL"; exit 1; }
 echo
 
 echo -n "1.3 models (gpthub-auto): "
-curl -sf -H "Authorization: Bearer $KEY" "$GW/v1/models" \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); ids=[m['id'] for m in d.get('data',[])]; print('OK' if 'gpthub-auto' in ids else 'FAIL', ids[:8])"
+# Без --max-time curl может долго ждать большой каталог /v1/models (прокси к MWS).
+if ! models_json=$(curl -sSf --max-time 90 -H "Authorization: Bearer $KEY" "$GW/v1/models"); then
+  echo "FAIL (curl)"
+else
+  echo "$models_json" | python3 -c "import sys,json; d=json.load(sys.stdin); ids=[m['id'] for m in d.get('data',[])]; print('OK' if 'gpthub-auto' in ids else 'FAIL', ids[:8])"
+fi
 
 echo -n "1.4 open-webui HTTP: "
-curl -sf -o /dev/null -w "%{http_code}\n" "$WEBUI/" || echo "FAIL"
+curl -sSf --max-time 15 -o /dev/null -w "%{http_code}\n" "$WEBUI/" || echo "FAIL"
 
 if command -v nginx >/dev/null 2>&1; then
   echo -n "1.5 nginx -t: "
@@ -120,7 +124,7 @@ else
 fi
 
 echo "--- J ручная модель (ТЗ11) ---"
-MANUAL=$(curl -sf -H "Authorization: Bearer $KEY" "$GW/v1/models" | python3 -c "import sys,json; d=json.load(sys.stdin); ids=[m['id'] for m in d.get('data',[]) if m['id']!='gpthub-auto']; print(ids[0] if ids else '')")
+MANUAL=$(curl -sSf --max-time 90 -H "Authorization: Bearer $KEY" "$GW/v1/models" | python3 -c "import sys,json; d=json.load(sys.stdin); ids=[m['id'] for m in d.get('data',[]) if m['id']!='gpthub-auto']; print(ids[0] if ids else '')")
 if [[ -z "$MANUAL" ]]; then
   echo "FAIL: нет моделей кроме gpthub-auto"
 else
