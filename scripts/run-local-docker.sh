@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
-# Локальный стек: Docker Compose (gpthub-gateway + open-webui + chroma).
+# Локальный стек: Docker Compose (mock MWS + gpthub-gateway + open-webui + chroma).
 # Запуск из корня репозитория: bash scripts/run-local-docker.sh
-# Перед запуском: включите Docker Desktop; в .env задайте реальный MWS_API_KEY.
+# Перед запуском: включите Docker Desktop.
+# По умолчанию поднимается mock LLM (docker-compose.local-mock.yml), ключ MWS_API_KEY
+# может быть mock-local-key. Реальный MWS: USE_REAL_MWS=1 bash scripts/run-local-docker.sh
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
+DC=(docker compose -f docker-compose.yml)
+if [[ "${USE_REAL_MWS:-}" != "1" ]]; then
+  DC+=( -f docker-compose.local-mock.yml )
+fi
 
 if ! docker info >/dev/null 2>&1; then
   echo "Docker daemon недоступен. Запустите Docker Desktop и повторите:"
@@ -16,7 +23,7 @@ fi
 
 if [[ ! -f .env ]]; then
   cp .env.example .env
-  echo "Создан .env из .env.example — укажите в нём MWS_API_KEY (реальный ключ)."
+  echo "Создан .env из .env.example."
 fi
 
 # Локальные URL для ссылок на /static/ и редиректов WebUI
@@ -29,13 +36,18 @@ fi
 
 KEY=$(grep '^MWS_API_KEY=' .env | head -1 | sed 's/^MWS_API_KEY=//' | tr -d '\r' | tr -d '"' | tr -d "'")
 if [[ -z "${KEY:-}" || "$KEY" == sk-your-key-here ]]; then
-  echo "ВНИМАНИЕ: в .env нужен рабочий MWS_API_KEY (не плейсхолдер)."
-  echo "Отредактируйте .env и снова: bash scripts/run-local-docker.sh"
-  exit 1
+  if [[ "${USE_REAL_MWS:-}" == "1" ]]; then
+    echo "В .env нужен рабочий MWS_API_KEY (не плейсхолдер)."
+    exit 1
+  fi
+  sed -i.bak 's/^MWS_API_KEY=.*/MWS_API_KEY=mock-local-key/' .env 2>/dev/null || \
+ echo 'MWS_API_KEY=mock-local-key' >> .env
+  KEY=mock-local-key
+  echo "Используется MWS_API_KEY=mock-local-key (mock LLM)."
 fi
 
 echo "=== docker compose build + up ==="
-docker compose up -d --build
+"${DC[@]}" up -d --build
 
 echo "=== ждём шлюз (до 180 с) ==="
 for i in $(seq 1 180); do
@@ -45,7 +57,7 @@ for i in $(seq 1 180); do
   fi
   if [[ "$i" -eq 180 ]]; then
     echo "Таймаут health. Логи:"
-    docker compose logs gpthub-gateway --tail=80
+    "${DC[@]}" logs gpthub-gateway --tail=80
     exit 1
   fi
   sleep 1
@@ -59,7 +71,7 @@ for i in $(seq 1 240); do
   fi
   if [[ "$i" -eq 240 ]]; then
     echo "Таймаут WebUI. Логи:"
-    docker compose logs open-webui --tail=80
+    "${DC[@]}" logs open-webui --tail=80
     exit 1
   fi
   sleep 1
@@ -74,14 +86,15 @@ curl -sS -N --max-time 90 \
   | head -15
 
 echo ""
-echo "=== полная проверка (опционально) ==="
+echo "=== полная проверка против реального MWS (опционально) ==="
+echo "  USE_REAL_MWS=1 bash scripts/run-local-docker.sh"
 echo "  bash scripts/verify-gpthub-stack.sh"
 echo ""
 if python3 -c "import aiohttp" 2>/dev/null; then
   echo "=== aiohttp SSE (как в Open WebUI backend) ==="
-  python3 scripts/verify-aiohttp-sse.py || true
+  MWS_API_KEY="$KEY" python3 scripts/verify-aiohttp-sse.py || true
 else
-  echo "Для проверки aiohttp: pip install aiohttp && python3 scripts/verify-aiohttp-sse.py"
+  echo "Для проверки aiohttp: pip install aiohttp && MWS_API_KEY=$KEY python3 scripts/verify-aiohttp-sse.py"
 fi
 
 echo ""

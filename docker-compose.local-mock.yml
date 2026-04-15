@@ -1,0 +1,34 @@
+# Локальный стек без реального MWS: mock LLM + шлюз + Open WebUI.
+# Запуск: docker compose -f docker-compose.yml -f docker-compose.local-mock.yml up -d --build
+# В .env должен быть MWS_API_KEY (любая непустая строка, например mock-local-key).
+
+services:
+  mock-mws:
+    build:
+      context: ./gpthub-gateway/dev/mock_mws
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/models')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  gpthub-gateway:
+    depends_on:
+      chroma:
+        condition: service_started
+      mock-mws:
+        condition: service_healthy
+    environment:
+      MWS_API_BASE: http://mock-mws:8000/v1
+      MWS_API_KEY: ${MWS_API_KEY:-mock-local-key}
+
+  open-webui:
+    depends_on:
+      gpthub-gateway:
+        condition: service_healthy
+    environment:
+      OPENAI_API_KEY: ${MWS_API_KEY:-mock-local-key}
+      OPENAI_API_KEYS: ${MWS_API_KEY:-mock-local-key}
