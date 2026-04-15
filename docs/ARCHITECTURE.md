@@ -19,6 +19,8 @@ flowchart LR
   GW -->|"HTTPS Bearer"| API
 ```
 
+
+
 - **Open WebUI** — интерфейс чата, история диалогов, выбор модели, загрузка файлов и мультимодальные сообщения в формате, совместимом с OpenAI.
 - **GPTHub Gateway** — единая точка входа для MWS: проксирует `GET /v1/models`, `POST /v1/chat/completions`, `POST /v1/embeddings`, `POST /v1/images/generations`, `POST /v1/audio/transcriptions` и добавляет:
   - **IntentRouter** — модель `gpthub-auto`: выбор сценария (текст, VLM, генерация изображения по промпту, контекст поиска/ссылок).
@@ -46,3 +48,7 @@ flowchart LR
 ## Безопасность
 
 Ключ `MWS_API_KEY` только через переменные окружения и не хранится в репозитории.
+
+## ТЗ и приёмка
+
+Чеклист функций и голосового режима: [TZ_GPTHUB.md](TZ_GPTHUB.md). Скрипт проверки API: `bash scripts/verify-tz-stack.sh`.

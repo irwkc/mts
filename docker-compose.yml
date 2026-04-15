@@ -79,6 +79,7 @@ services:
       WEBUI_URL: ${WEBUI_URL:-http://localhost:3000}
       WEBUI_NAME: "${WEBUI_NAME:-gena 2.0}"
       DEFAULT_MODELS: '["gpthub-auto"]'
+      # Голосовой чат (Voice mode): STT/TTS через шлюз; не «Web STT», иначе звонок отключён в UI
       AUDIO_STT_ENGINE: openai
       AUDIO_STT_OPENAI_API_BASE_URL: http://gpthub-gateway:8080/v1
       AUDIO_STT_OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
@@ -88,6 +89,10 @@ services:
       AUDIO_TTS_OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
       AUDIO_TTS_MODEL: ${AUDIO_TTS_MODEL:-tts-1}
       AUDIO_TTS_VOICE: ${AUDIO_TTS_VOICE:-alloy}
+      # Явно разрешаем звонок/распознавание/озвучку для ролей user (не только admin)
+      USER_PERMISSIONS_CHAT_CALL: "true"
+      USER_PERMISSIONS_CHAT_STT: "true"
+      USER_PERMISSIONS_CHAT_TTS: "true"
     volumes:
       - open-webui-data:/app/backend/data
     restart: unless-stopped
