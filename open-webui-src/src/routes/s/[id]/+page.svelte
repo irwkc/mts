@@ -13,6 +13,7 @@
 	import Messages from '$lib/components/chat/Messages.svelte';
 
 	import { getUserInfoById, getUserSettings } from '$lib/apis/users';
+	import { mergeGenaDialogueDefaults, normalizeUiFromStored } from '$lib/utils/genaDialogueDefaults';
 	import { getModels } from '$lib/apis';
 	import { toast } from 'svelte-sonner';
 	import localizedFormat from 'dayjs/plugin/localizedFormat';
@@ -66,17 +67,16 @@
 		});
 
 		if (userSettings) {
-			settings.set(userSettings.ui);
+			settings.set(mergeGenaDialogueDefaults(normalizeUiFromStored(userSettings)));
 		} else {
-			let localStorageSettings = {} as Parameters<(typeof settings)['set']>[0];
-
+			let localStorageSettings = {};
 			try {
 				localStorageSettings = JSON.parse(localStorage.getItem('settings') ?? '{}');
 			} catch (e: unknown) {
 				console.error('Failed to parse settings from localStorage', e);
 			}
 
-			settings.set(localStorageSettings);
+			settings.set(mergeGenaDialogueDefaults(normalizeUiFromStored(localStorageSettings)));
 		}
 
 		await models.set(

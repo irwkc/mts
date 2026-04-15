@@ -26,16 +26,16 @@ ARG GID=0
 ######## WebUI frontend ########
 FROM --platform=$BUILDPLATFORM node:22-alpine3.20 AS build
 ARG BUILD_HASH
+# true = не вызывать vite в контейнере, взять ./build из контекста (сначала: npm run build на хосте)
+ARG USE_PREBUILT_FRONTEND=false
 
 # Set Node.js options (heap limit Allocation failed - JavaScript heap out of memory)
-# ENV NODE_OPTIONS="--max-old-space-size=4096"
-
 WORKDIR /app
 
 # to store git revision in build
 RUN apk add --no-cache git
 
-# См. open-webui-baobab/Dockerfile: без пропуска CUDA postinstall onnxruntime-node качает гигабайты с GitHub и падает (504).
+# Без пропуска CUDA postinstall onnxruntime-node качает гигабайты с GitHub и падает (504).
 ENV npm_config_onnxruntime_node_install_cuda=skip
 
 COPY package.json package-lock.json ./
@@ -43,7 +43,12 @@ RUN npm ci --force
 
 COPY . .
 ENV APP_BUILD_HASH=${BUILD_HASH}
-RUN npm run build
+ENV NODE_OPTIONS="--max-old-space-size=8192"
+RUN if [ "$USE_PREBUILT_FRONTEND" = "true" ] && [ -f build/index.html ]; then \
+  echo "open-webui: using prebuilt frontend (USE_PREBUILT_FRONTEND=true)"; \
+  else \
+  npm run build; \
+  fi
 
 ######## WebUI backend ########
 FROM python:3.11.14-slim-bookworm AS base

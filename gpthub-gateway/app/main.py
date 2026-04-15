@@ -1,5 +1,3 @@
-"""OpenAI-совместимый шлюз: MWS GPT, авто-роутер, память, RAG, веб-инструменты."""
-
 from __future__ import annotations
 
 import copy
@@ -25,12 +23,10 @@ from app.gena_features import (
     public_static_url,
     post_images_with_optional_reference,
     prepare_image_generation_prompt,
-    should_stream_deep_gena,
     should_stream_image_gena,
     has_explicit_presentation_style,
     should_stream_presentation,
     stream_presentation_style_prompt,
-    stream_deep_research,
     stream_image_markdown,
     stream_presentation_pptx,
     user_wants_image_generation,
@@ -65,7 +61,6 @@ from app.router_logic import (
     message_has_audio,
 )
 from app.web_tools import (
-    deep_research_ddg,
     extract_urls,
     fetch_url_text,
     search_query_from_text,
@@ -392,7 +387,6 @@ def _sse_headers(request: Request) -> dict[str, str]:
 
 
 def _mws_upstream_stream_headers() -> dict[str, str]:
-    """Заголовки к MWS для SSE: без gzip — иначе при обрыве потока клиенты (aiohttp/Open WebUI) ловят TransferEncodingError."""
     return {
         "Authorization": f"Bearer {settings.mws_api_key}",
         "Content-Type": "application/json",
@@ -508,7 +502,7 @@ def merge_models_payload(mws_json: dict[str, Any]) -> dict[str, Any]:
                 "id": settings.auto_model_id,
                 "object": "model",
                 "created": int(time.time()),
-                "owned_by": "baobab",
+                "owned_by": "gpthub",
                 "name": settings.auto_model_display_name,
             },
         )
@@ -959,13 +953,6 @@ async def chat_completions(request: Request) -> Response:
                 media_type="text/event-stream",
                 headers=_sse_headers(request),
             )
-        if auto_mode and should_stream_deep_gena(last_text, stream):
-            logger.info("gena intercept=deep_research stream=1")
-            return StreamingResponse(
-                stream_deep_research(_client, last_text, available),
-                media_type="text/event-stream",
-                headers=_sse_headers(request),
-            )
         if want_image:
             logger.info("gena intercept=image stream=1 requested_model=%r", requested_model)
             return StreamingResponse(
@@ -1026,13 +1013,6 @@ async def chat_completions(request: Request) -> Response:
         rag_ctx = await _rag.retrieve(rag_scope, last_text)
         if rag_ctx:
             extra_parts.append(rag_ctx)
-
-    if last_text:
-        if should_run_deep_research(last_text):
-            extra_parts.append(deep_research_ddg(last_text))
-        elif should_run_web_search(last_text):
-            q = search_query_from_text(last_text)
-            extra_parts.append(web_search_ddg(q))
 
     for u in extract_urls(last_text):
         try:
@@ -1137,7 +1117,7 @@ async def chat_completions(request: Request) -> Response:
     async def gen():
         acc: list[str] = []
         done_sent = False
-        mode: str | None = None  # None = undecided, "streaming", "hold"
+        mode: str | None = None
         buf: list[str] = []
 
         async def pump_stream(resp: httpx.Response):

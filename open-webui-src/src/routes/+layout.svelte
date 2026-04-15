@@ -69,6 +69,7 @@
 	import SyncStatsModal from '$lib/components/chat/Settings/SyncStatsModal.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import { getUserSettings } from '$lib/apis/users';
+	import { mergeGenaDialogueDefaults, normalizeUiFromStored } from '$lib/utils/genaDialogueDefaults';
 	import dayjs from 'dayjs';
 	import { getChannels } from '$lib/apis/channels';
 
@@ -884,9 +885,15 @@
 
 				const userSettings = await getUserSettings(localStorage.token);
 				if (userSettings) {
-					settings.set(userSettings.ui);
+					settings.set(mergeGenaDialogueDefaults(normalizeUiFromStored(userSettings)));
 				} else {
-					settings.set(JSON.parse(localStorage.getItem('settings') ?? '{}'));
+					let parsed = {};
+					try {
+						parsed = JSON.parse(localStorage.getItem('settings') ?? '{}');
+					} catch {
+						parsed = {};
+					}
+					settings.set(mergeGenaDialogueDefaults(normalizeUiFromStored(parsed)));
 				}
 				setTextScale($settings?.textScale ?? 1);
 

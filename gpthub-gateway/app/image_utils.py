@@ -113,7 +113,6 @@ async def image_api_response_to_sse_href(img_resp: dict[str, Any], data_dir: Pat
     if not url:
         return ""
     if url.startswith("data:"):
-        # редкий случай — не раздуваем SSE
         try:
             head, b64part = url.split(",", 1)
             if ";base64" in head:
@@ -134,8 +133,6 @@ async def image_api_response_to_sse_href(img_resp: dict[str, Any], data_dir: Pat
 
     needs_auth = any(d in url for d in _MWS_DOMAINS)
     if not needs_auth:
-        # Внешний URL без проверки — в чат не кладём, если потом не отдаст картинку (риск битого ![](...)).
-        # Скачиваем и сохраняем локально с валидацией, как для MWS.
         try:
             async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
                 r = await client.get(url, headers={"User-Agent": "gpthub-gateway/1.0"})
@@ -179,7 +176,6 @@ async def image_api_response_to_data_url(img_resp: dict[str, Any]) -> str:
     if not isinstance(data, dict):
         return ""
 
-    # MWS может вернуть base64 напрямую
     b64 = data.get("b64_json")
     if isinstance(b64, str) and b64.strip():
         try:
@@ -199,7 +195,6 @@ async def image_api_response_to_data_url(img_resp: dict[str, Any]) -> str:
     if not (url.startswith("http://") or url.startswith("https://")):
         return url
 
-    # Скачиваем изображение. Для MWS-доменов добавляем авторизацию.
     headers: dict[str, str] = {"User-Agent": "gpthub-gateway/1.0"}
     mws_domains = ("api.gpt.mws.ru", "mws.ru", "gpt.mws.ru")
     if any(d in url for d in mws_domains):

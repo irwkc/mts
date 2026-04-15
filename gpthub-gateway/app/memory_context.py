@@ -14,7 +14,6 @@ from app.mws_client import MWSClient
 
 logger = logging.getLogger("gpthub.memory")
 
-# Явные указания запомнить (как отдельные факты)
 _EXPLICIT_REMEMBER_RE = re.compile(
     r"(?i)(?:запомни(?:\s+что)?|remember(?:\s+that)?|save\s+that|важно)\s*[:,]?\s*(.+)",
 )

@@ -1,7 +1,3 @@
-"""
-Фичи gena/router: стрим презентаций PPTX, стрим картинок, стрим deep research, SSE-хелперы.
-"""
-
 from __future__ import annotations
 
 import base64
@@ -11,8 +7,6 @@ import re
 import uuid
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
-from urllib.parse import quote
-
 import httpx
 from fastapi import Request
 
@@ -44,7 +38,6 @@ from app.web_tools import (
     extract_urls,
     fetch_url_text,
     should_run_deep_research,
-    web_search_ddg,
 )
 
 logger = logging.getLogger("gpthub.gena")
@@ -63,7 +56,6 @@ def _assistant_context_for_image_edit(messages: list[dict[str, Any]] | None) -> 
     return s.strip()[:12000]
 
 
-# Перекраска / «покрась в …» — иначе diffusion путает цвет с новым объектом (фиолетовый → цветок вместо кота).
 _COLOR_ONLY_EDIT = re.compile(
     r"(?:"
     r"(?:покрась|перекрась|покрасьте|раскрась)(?:\s+в\s+|\s+)(?:фиолетов|красн|син|зел[её]н|ж[её]лт|оранжев|розов|черн|бел)|"
@@ -78,7 +70,6 @@ _COLOR_ONLY_EDIT = re.compile(
     re.I,
 )
 
-# «Утечка» в цветок/растение в англ. промпте при перекраске сцены с животным
 _FLORAL_LEAK = re.compile(
     r"(?i)\b("
     r"flower|flowers|floral|bouquet|bloom|blossom|orchid|tulip|rose|violet\s+flower|lavender\s+field|"
@@ -137,8 +128,6 @@ def _merge_basis_with_assistant_context(basis: str, messages: list[dict[str, Any
     )[:14000]
 
 
-# Правки сцены после картинки ассистента. Без слишком коротких токенов («картин», «исправ») —
-# иначе ловится обычный текст в чате.
 _IMAGE_EDIT_FOLLOWUP = re.compile(
     r"(?:"
     r"измени|изменить|перерисуй|покрась|перекрась|отредактируй|подправь|доработай|"
@@ -174,7 +163,6 @@ _IMAGE_EDIT_FOLLOWUP = re.compile(
     re.I,
 )
 
-# Сообщение явно просит факты/текст — не считать это запросом на новую картинку после предыдущей.
 _TEXT_NOT_IMAGE_FOLLOWUP = re.compile(
     r"(?is)^\s*(?:"
     r"сколько\b|когда\b|почему\b|зачем\b|откуда\b|куда\b|"
@@ -221,7 +209,6 @@ def _last_assistant_content(messages: list[dict[str, Any]]) -> str:
     return ""
 
 
-# Ассистент описал сцену и предложил сгенерировать картинку (ещё без ![...] в чате).
 _ASSISTANT_OFFERS_IMAGE = re.compile(
     r"(?:"
     r"хочешь\s*,?\s*я\s+(?:создам|сгенерирую|нарисую)|"
@@ -300,9 +287,6 @@ def _image_followup_after_assistant_picture(last_text: str, messages: list[dict[
         return False
     if _IMAGE_EDIT_FOLLOWUP.search(last_text):
         return True
-    # Раньше здесь было len(t)<=400 — из-за этого любой короткий вопрос после картинки
-    # (напр. «сколько весит жираф») уходил в генерацию. Оставляем только явные правки выше
-    # и прямые команды из IMAGE_GEN_RE в user_wants_image_generation.
     return False
 
 
@@ -442,7 +426,6 @@ async def prepare_image_generation_prompt(
     if prompt == user_text and basis != user_text:
         prompt = basis
 
-    # Перекраска: LLM часто подставляет цветок; при «утечке» или известном коте/собаке — жёсткий промпт.
     if _color_only:
         sh = _subject_en_hint_from_thread(messages)
         p = (prompt or "").strip()
@@ -529,7 +512,6 @@ async def post_images_with_optional_reference(
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 401:
             raise
-        # MWS часто не принимает JSON edits (multipart/другой контракт) или отвечает 5xx — идём в img2img.
         logger.info(
             "images/edits skipped (%s), trying img2img: %s",
             e.response.status_code,
@@ -688,7 +670,6 @@ def public_app_url(request: Request, path: str) -> str:
     return str(request.base_url).rstrip("/") + "/" + p
 
 
-# Стиль: слова в промпте (см. infer_presentation_style) или опционально префикс [gena_style:id].
 _PRESENTATION_STYLE_HEAD = re.compile(r"^\s*\[gena_style:([a-z0-9_-]+)\]\s*", re.I)
 _PRESENTATION_STYLE_IDS = frozenset(
     {"minimal", "corporate", "modern", "bold", "playful", "elegant"}
@@ -731,7 +712,6 @@ def has_explicit_presentation_style(user_text: str) -> bool:
     return m.group(1).lower() in _PRESENTATION_STYLE_IDS
 
 
-# Порядок и подписи для UI (Open WebUI) — 6 кнопок выбора стиля
 PRESENTATION_STYLE_UI_ROWS: list[dict[str, str]] = [
     {"id": "minimal", "label": "Минимализм", "hint": "воздух, 1–2 акцента"},
     {"id": "corporate", "label": "Деловой", "hint": "сетка, строгая типографика"},
@@ -760,7 +740,6 @@ async def stream_presentation_style_prompt(request: Request) -> AsyncGenerator[s
 def infer_presentation_style(prompt: str) -> str:
     """Угадать стиль по словам в запросе (рус/англ). Иначе corporate."""
     t = (prompt or "").lower()
-    # Порядок: более специфичные шаблоны раньше при необходимости
     checks: list[tuple[str, tuple[str, ...]]] = [
         ("minimal", (r"минимал", r"лаконич", r"\bminimal\b", r"clean\s+style", r"в\s+стиле\s+минимал")),
         ("corporate", (r"делов", r"корпоратив", r"\bcorporate\b", r"офисн", r"строг", r"business")),
@@ -825,58 +804,34 @@ async def stream_presentation_pptx(
             "style": style_key,
         },
     )
-    yield sse_delta("", gena={"type": "phase", "phase": "research"})
-    research = web_search_ddg((clean_prompt or "")[:600], max_results=6)
-    page_bits: list[str] = []
-    for u in extract_urls(research, limit=2):
-        try:
-            pg = await fetch_url_text(u, max_chars=3200)
-            page_bits.append(f"--- {u} ---\n{pg[:2800]}")
-        except Exception:
-            continue
-    page_extra = "\n\n".join(page_bits)
-
-    user_bundle = (
-        f"Запрос пользователя:\n{clean_prompt[:8000]}\n\n"
-        f"Сниппеты веб-поиска (используй для фактов и ссылок sources):\n{research[:7000]}"
-    )
-    if page_extra:
-        user_bundle += f"\n\nФрагменты страниц для анализа:\n{page_extra[:6000]}"
-
-    yield sse_delta("", gena={"type": "phase", "phase": "research_done"})
     yield sse_delta("", gena={"type": "phase", "phase": "llm"})
+    user_bundle = f"Запрос пользователя:\n{clean_prompt[:8000]}\n"
     model = _pick_model(settings.gena_code_model, available_ids, settings.default_llm)
     system_prompt = (
-        "Ты — автор презентаций (как умный ассистент с веб-контекстом): факты, структура, заметки докладчика, иллюстрации.\n"
+        "Ты — автор презентаций: структура, факты из общих знаний, заметки докладчика; иллюстрации задаются для нейросетевой генерации БЕЗ поиска в интернете.\n"
         + style_hint
         + "\n\n"
+        "Запрещено: перечислять сторонние сервисы, приложения и сайты (любые бренды вроде SlidePix, TeraBox, Fotor и т.п.), "
+        "давать обзоры рынка или «топ сервисов» — только содержание презентации по теме пользователя.\n\n"
         "Верни СТРОГО один JSON-объект без markdown. Формат:\n"
         '{"deck_title":"Краткое название презентации",'
         '"slides":['
         '{"title":"Заголовок слайда","subtitle":"Подзаголовок или пустая строка",'
         '"bullets":["пункт 1","пункт 2"],'
-        '"speaker_notes":"2–6 предложений: что говорить с экрана, акценты, переходы (редактируется в PowerPoint в заметках к слайду)",'
+        '"speaker_notes":"2–6 предложений для докладчика",'
         '"accent":"#RRGGBB",'
-        '"image_mode":"auto|search|generate",'
-        '"image_query":"ОБЯЗАТЕЛЬНО на английском: 3–8 ключевых слов для поиска фото/стока в интернете (не пусто); тема слайда одной строкой",'
-        '"image_prompt":"Только для нейро-фолбэка: описание РЕАЛЬНОЙ сцены/фото на английском (животные, пейзаж, объект). '
-        'НЕ слова presentation/slide/infographic/layout; БЕЗ текста на картинке; без «слайда» и «постера».",'
-        '"sources":[{"title":"кратко","url":"https://..."}],'
+        '"image_mode":"generate",'
+        '"image_query":"кратко на английском тема визуала (для внутренней нормализации)",'
+        '"image_prompt":"ОБЯЗАТЕЛЬНО на английском: одна реальная фото-сцена (предмет, пейзаж, люди, объект). '
+        'Без слов presentation, slide, infographic, poster, UI mockup. '
+        'Без текста, букв, логотипов и надписей на изображении — только визуал.",'
+        '"sources":[],'
         '"visual_style":"corporate|modern|bold|compact"}'
         "]}\n"
-        "Опционально в объекте слайда (если уместно): "
-        '"font_scale": число 0.85–1.2 (крупность текста относительно стиля); '
-        '"title_font"|"body_font"|"notes_font": одно из arial, calibri, georgia, times, helvetica, verdana, tahoma. '
-        f"Правила: не больше {slide_cap} слайдов (ровно столько, сколько нужно теме, но не выше этого числа); "
-        "разные гармоничные accent; visual_style задаёт шрифты и плотность верстки; "
-        "Иллюстрации: система ВСЕГДА сначала ищет картинки в интернете (по image_query), "
-        "нейро-генерация — только если веб не дал подходящего файла. "
-        "Поэтому на КАЖДОМ слайде заполняй image_query осмысленным английским запросом (фото, предмет, контекст). "
-        "image_mode: auto — типичный режим; search — настаивать на реальных фото из сети; "
-        "generate — допустить нейро-иллюстрацию как запасной вариант после веба (не отключай веб). "
-        "Никогда не проси в image_prompt текст, буквы, подписи или заголовки на картинке — текст только в title/bullets слайда. "
-        "sources — только реальные URL из контекста веб-поиска выше (0–2 на слайд). "
-        "Не выдумывай URL."
+        "Опционально: font_scale 0.85–1.2; title_font|body_font|notes_font из arial, calibri, georgia, times, helvetica, verdana, tahoma. "
+        f"Не больше {slide_cap} слайдов. "
+        "Картинки к слайдам создаёт только нейросеть по image_prompt; sources всегда пустой массив []. "
+        "В image_prompt и image_query никогда не требуй текст, подписи, буквы, водяные знаки на картинке."
     )
     try:
         data = await client.post_json(
@@ -955,16 +910,11 @@ async def stream_presentation_pptx(
             static_dir / f"{stem}.json",
             deck_title,
             slides_data,
-            research + ("\n" + page_extra if page_extra else ""),
+            "",
             stem=stem,
         )
         url = public_static_url(request, f"static/presentations/{fname}")
-        editor = public_app_url(request, f"presentation/editor/?stem={stem}")
-        preview_page = public_app_url(
-            request, f"preview/pptx?path={quote(f'static/presentations/{fname}', safe='')}"
-        )
 
-        # PPTX сразу после сборки; PDF может долго конвертироваться — не блокируем предпросмотр.
         yield sse_delta(
             "\n\n**Скачивание**\n\n"
             f"- [Скачать PPTX]({url})\n\n",
@@ -979,15 +929,11 @@ async def stream_presentation_pptx(
         )
 
         yield sse_delta(
-            f"- [Скачать PDF]({pdf_href})\n\n"
-            f"- [Редактор слайдов]({editor})\n"
-            f"- [Предпросмотр в браузере · Office Online]({preview_page})\n\n",
+            f"- [Скачать PDF]({pdf_href})\n\n",
             gena={
                 "type": "presentation_complete",
                 "stem": stem,
                 "download_url": url,
-                "editor_url": editor,
-                "preview_page_url": preview_page,
                 "pdf_url": pdf_href,
                 "pptx_rel": f"static/presentations/{fname}",
                 "slide_count": len(slides_data),

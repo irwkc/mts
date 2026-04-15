@@ -88,7 +88,6 @@ class RAGStore:
         chunks = chunk_text(text)
         if not chunks:
             return 0
-        # синхронные эмбеддинги в ingest — вызываем через asyncio в main
         return len(chunks)
 
     async def ingest_text_async(self, scope: str, text: str) -> int:
@@ -149,7 +148,6 @@ def extract_embeddable_documents(last_user_text: str) -> list[str]:
     if not last_user_text:
         return []
 
-    # Попытка распознать PDF paste
     if last_user_text.lstrip().startswith("%PDF"):
         try:
             pdf_text = extract_text_from_pdf_bytes(last_user_text.encode("latin-1", errors="replace"))
@@ -159,7 +157,6 @@ def extract_embeddable_documents(last_user_text: str) -> list[str]:
         except Exception:
             pass
 
-    # Обычный длинный текст
     if len(last_user_text) >= 800:
         return [last_user_text]
 

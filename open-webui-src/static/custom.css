@@ -1,6 +1,6 @@
 /*
- * BAOBAB: favicon / splash / PWA из assets/baobab-logo.png (Dockerfile).
- * Палитра интерфейса: серо-бирюзовая + тёмно-фиолетовая — в основном через src/tailwind.css (@theme).
+ * Доп. стили к форку Open WebUI (см. Dockerfile / статика).
+ * Палитра: серо-бирюзовая + тёмно-фиолетовая — в основном через src/tailwind.css (@theme).
  * Здесь — мягкий фон приложения в тёмной теме.
  */
 html.dark body {

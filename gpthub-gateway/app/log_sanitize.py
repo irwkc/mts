@@ -1,7 +1,3 @@
-"""
-Санитизация и форматирование тел для логов: без секретов, с усечением длинных строк.
-"""
-
 from __future__ import annotations
 
 import copy
@@ -12,7 +8,6 @@ from typing import Any
 
 logger = logging.getLogger("gpthub.log")
 
-# Ключи JSON, значения которых не пишем в лог (или маскируем)
 _REDACT_KEY_PARTS = (
     "password",
     "secret",

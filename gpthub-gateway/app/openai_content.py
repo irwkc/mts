@@ -1,5 +1,3 @@
-"""Единый разбор строкового и multimodal content/delta в стиле OpenAI."""
-
 from __future__ import annotations
 
 from typing import Any

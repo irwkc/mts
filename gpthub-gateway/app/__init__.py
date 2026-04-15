@@ -1,1 +1,0 @@
-# GPTHub gateway

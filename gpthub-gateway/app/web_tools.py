@@ -22,7 +22,6 @@ _web_search_lock = Lock()
 
 URL_RE = re.compile(r"https?://[^\s)>\]}]+", re.I)
 
-# Как gena RESEARCH_KEYWORDS + прежние триггеры
 DEEP_RESEARCH_RE = re.compile(
     r"(глубокий\s+поиск|deep\s+research|глубок(ое|ий)\s+исследован|"
     r"многошагов(ый|ого)\s+поиск|iterative\s+search|исследуй\s+тему|"
@@ -30,22 +29,16 @@ DEEP_RESEARCH_RE = re.compile(
     re.I,
 )
 
-# Расширенный список триггеров веб-поиска
 _WEB_SEARCH_TRIGGERS = re.compile(
     r"("
-    # Явные команды поиска
     r"найди\s+в\s+интернет|поиск\s+в\s+сети|web\s+search|google\s+this|search\s+the\s+web|"
     r"погугли|загугли|поищи\s+в\s+(сети|интернет)|"
-    # Запросы про актуальность и новости
     r"что\s+нов(ого|ое|ые)|актуальн(ый|ые|ая|ое|о)\s+|последн(ие|ий|яя|ее)\s+(новости|данные|события|инфо)|"
     r"свежи(е|й)\s+(новости|данные|события)|"
-    # Запросы на поиск информации
     r"найди\s+(информаци|данные|новости|факты|статистику)|"
     r"найди\s+(информацию|данные|новости|факты)\s+(о|про|по)|"
-    # Фактические запросы
     r"кто\s+такой\s+\w|что\s+такое\s+\w{4}|сколько\s+стоит|"
     r"когда\s+(вышел|был|произошло|случилось)|"
-    # Английские варианты
     r"look\s+up|find\s+(info|information|news)\s+(about|on)|latest\s+(news|info|data)|"
     r"current\s+(news|events|situation)|what'?s\s+(new|happening)"
     r")",
@@ -128,7 +121,6 @@ def should_run_deep_research(last_user_text: str) -> bool:
 
 
 def deep_research_ddg(topic: str, subqueries: int = 3) -> str:
-    """Несколько запросов DuckDuckGo + сырой контекст для синтеза LLM (бонус «Deep Research»)."""
     topic = (topic or "").strip()[:500]
     if len(topic) < 4:
         return "(укажите тему исследования)"
@@ -157,7 +149,6 @@ _IMG_URL_IN_TEXT = re.compile(
 
 
 def _image_urls_from_ddg_text_fallback(query: str, max_urls: int = 12) -> list[str]:
-    """Если ddgs.images пустой или заблокирован — вытащить прямые ссылки на jpg/png из текстовой выдачи."""
     q = (query or "").strip()[:400]
     if len(q) < 2:
         return []
@@ -180,7 +171,6 @@ def _image_urls_from_ddg_text_fallback(query: str, max_urls: int = 12) -> list[s
 
 
 def image_search_ddg_urls(query: str, max_results: int = 24) -> list[str]:
-    """Поиск картинок в интернете (DuckDuckGo images). Сначала type_image=photo (реальные фото)."""
     q = (query or "").strip()[:500]
     if len(q) < 2:
         return []
@@ -220,10 +210,6 @@ def image_search_ddg_urls(query: str, max_results: int = 24) -> list[str]:
 
 
 def try_parse_openwebui_queries_json(text: str) -> list[str] | None:
-    """Только ответы вида Open WebUI query-generation: {\"queries\": [...] } без других ключей.
-
-    Возвращает None, если это не такой объект; пустой список — для {\"queries\": []}.
-    """
     t = (text or "").strip()
     if not t:
         return None
@@ -290,7 +276,6 @@ def strip_trailing_openwebui_queries_json(text: str) -> str:
 
 
 def try_parse_openwebui_follow_ups_json(text: str) -> list[str] | None:
-    """Open WebUI follow-up generation: {\"follow_ups\": [...] } без других ключей."""
     t = (text or "").strip()
     if not t:
         return None
@@ -322,7 +307,6 @@ def try_parse_openwebui_follow_ups_json(text: str) -> list[str] | None:
 
 def search_query_from_text(last_user_text: str) -> str:
     t = (last_user_text or "").strip()
-    # Убираем префикс-команду поиска, оставляем суть запроса
     for prefix in (
         "найди в интернете",
         "найди в интернет",
