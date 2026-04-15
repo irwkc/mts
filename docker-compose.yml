@@ -79,6 +79,8 @@ services:
       WEBUI_AUTH: ${WEBUI_AUTH:-true}
       ENABLE_OLLAMA_API: "false"
       ENABLE_OPENAI_API: "true"
+      # Иначе у role=user модели с внешнего API (gpthub-auto и др.) отфильтровываются → «Model not found».
+      BYPASS_MODEL_ACCESS_CONTROL: "true"
       # Несколько бэкендов: в .env задайте OPENAI_API_BASE_URLS и OPENAI_API_KEYS через «;» (порядок пар должен совпадать).
       # Пример с Grok: OPENAI_API_BASE_URLS=http://gpthub-gateway:8080/v1;https://api.x.ai/v1 и OPENAI_API_KEYS=mws-ключ;xai-ключ
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-http://gpthub-gateway:8080/v1}
