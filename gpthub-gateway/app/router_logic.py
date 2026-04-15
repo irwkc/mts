@@ -87,7 +87,7 @@ _DEEP_RESEARCH_HINT = re.compile(
     re.I,
 )
 
-# --- Режим «gena» (из gena/router/router.py): эвристики без отдельного LLM-роутера ---
+# --- Режим «gena» (эвристики legacy router, без отдельного LLM-роутера) ---
 _GENA_CODE_KEYWORDS = re.compile(
     r"(напиш(и\b|ь\b)|реализу(й\b|ет\b|ация)|покаж(и\b|ет\b)|сдела(й\b|ть\b)|исправ(ь\b|и\b|ляй)|почин(и\b|ь\b)|отлад(ь\b|и\b)|задеплой|"
     r"код|функц|алгоритм|скрипт|програм|python|py\b|js\b|javascript|typescript|ts\b|sql|ошибк|баг|bug\b|debug\b|"
