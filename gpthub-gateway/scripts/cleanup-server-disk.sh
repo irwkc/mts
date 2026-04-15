@@ -8,8 +8,12 @@ echo "== Disk before =="
 df -h / || true
 
 if command -v docker >/dev/null 2>&1; then
+  echo "== docker build cache =="
+  docker builder prune -af || true
   echo "== docker system prune (образы/контейнеры неиспользуемые) =="
   docker system prune -af || true
+  echo "== docker system df =="
+  docker system df || true
 fi
 
 if command -v apt-get >/dev/null 2>&1; then

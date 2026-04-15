@@ -135,6 +135,8 @@ jobs:
             cd ~/mts
             git fetch origin main
             git reset --hard origin/main
+            # Остановить стек: иначе старые слои заняты, prune не освобождает место под новый pull (libtorch и т.д.)
+            sudo docker compose down --remove-orphans || true
             sudo bash gpthub-gateway/scripts/cleanup-server-disk.sh || true
             pull_ok=0
             for attempt in 1 2 3 4 5; do
