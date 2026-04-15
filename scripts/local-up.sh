@@ -1,49 +1,33 @@
 #!/usr/bin/env bash
-# Локальный запуск стека одной командой из корня репозитория:
-#   bash scripts/local-up.sh
-# или (после chmod +x):
-#   ./local-up.sh
-#
-# Требования: Docker + Docker Compose v2, в PATH — docker.
-# Первый запрос: скопирует .env.example → .env и попросит задать MWS_API_KEY, если в .env ещё заглушка.
-# Ключ можно передать в окружении без правки файла:
-#   MWS_API_KEY=sk-... bash scripts/local-up.sh
-
 set -euo pipefail
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-if [[ ! -f .env ]]; then
-  echo "==> Создаю .env из .env.example"
-  cp .env.example .env
-fi
-
-# Картинки/PPTX в чате на localhost: абсолютный URL к шлюзу (если ещё не задано)
+[[ -f .env ]] || cp .env.example .env
 if ! grep -q '^GPTHUB_PUBLIC_BASE_URL=' .env 2>/dev/null; then
-  echo "GPTHUB_PUBLIC_BASE_URL=http://127.0.0.1:8081" >> .env
-  echo "==> Добавлен GPTHUB_PUBLIC_BASE_URL=http://127.0.0.1:8081 (ссылки на /static/ в чате)"
+  echo 'GPTHUB_PUBLIC_BASE_URL=http://127.0.0.1:8081' >> .env
 fi
 
-_key_ok=0
-if [[ -n "${MWS_API_KEY:-}" ]] && [[ "${MWS_API_KEY}" != "sk-your-key-here" ]]; then
-  _key_ok=1
-fi
-if [[ "${_key_ok}" -eq 0 ]] && grep -qE '^MWS_API_KEY=.+$' .env 2>/dev/null; then
-  _line="$(grep '^MWS_API_KEY=' .env | head -1)"
-  _val="${_line#MWS_API_KEY=}"
-  if [[ -n "${_val}" && "${_val}" != "sk-your-key-here" ]]; then
-    _key_ok=1
+has_key=0
+if [[ -n "${MWS_API_KEY:-}" && "${MWS_API_KEY}" != "sk-your-key-here" ]]; then
+  has_key=1
+else
+  v="$(grep '^MWS_API_KEY=' .env 2>/dev/null | head -1 | cut -d= -f2- || true)"
+  if [[ -n "${v}" && "${v}" != "sk-your-key-here" ]]; then
+    has_key=1
   fi
 fi
 
-if [[ "${_key_ok}" -eq 0 ]]; then
-  echo "" >&2
-  echo "Задайте ключ MWS GPT в .env (строка MWS_API_KEY=...) или в окружении:" >&2
-  echo "  MWS_API_KEY=sk-... bash scripts/local-up.sh" >&2
-  echo "" >&2
+if [[ "${has_key}" -eq 0 ]]; then
+  echo "Set MWS_API_KEY in .env or: MWS_API_KEY=sk-... bash scripts/local-up.sh" >&2
   exit 1
 fi
 
-echo "==> docker compose up -d --build"
-exec docker compose up -d --build
+if docker compose version >/dev/null 2>&1; then
+  exec docker compose up -d --build
+fi
+if command -v docker-compose >/dev/null 2>&1; then
+  exec docker-compose up -d --build
+fi
+echo "Need Docker Compose: install Docker Desktop / plugin, or docker-compose" >&2
+exit 1

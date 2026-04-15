@@ -1,5 +1,4 @@
 services:
-  # Долгая память в стиле gena (семантический поиск; опционально, том на диске).
   chroma:
     image: chromadb/chroma:latest
     environment:
@@ -29,7 +28,6 @@ services:
       GPTHUB_ROUTER_MODE: ${GPTHUB_ROUTER_MODE:-gena}
       CHROMA_HOST: ${CHROMA_HOST:-chroma}
       CHROMA_PORT: ${CHROMA_PORT:-8000}
-      # Ссылки на /static/ в markdown: пусто → относительные /static/... (тот же origin, что у UI за nginx). Локально в .env: GPTHUB_PUBLIC_BASE_URL=http://127.0.0.1:8081
       GPTHUB_PUBLIC_BASE_URL: ${GPTHUB_PUBLIC_BASE_URL:-}
       GPTHUB_GENA_CODE_MODEL: ${GPTHUB_GENA_CODE_MODEL:-qwen3-coder-480b-a35b}
       GPTHUB_GENA_LONG_DOC_MODEL: ${GPTHUB_GENA_LONG_DOC_MODEL:-cotype-pro-vl-32b}
@@ -38,7 +36,6 @@ services:
       GPTHUB_LOG_LEVEL: ${GPTHUB_LOG_LEVEL:-DEBUG}
     volumes:
       - gpthub-data:/data
-    # Снижает редкие сбои нативных библиотек (embedding/chroma) на малом /dev/shm в контейнере
     shm_size: "256mb"
     ports:
       - "8081:8080"
@@ -59,21 +56,16 @@ services:
       gpthub-gateway:
         condition: service_healthy
     ports:
-      # Только localhost: снаружи отдаёт nginx на :80 (см. deploy/nginx-open-webui.conf)
       - "127.0.0.1:3000:8080"
     environment:
-      # Иначе настройки из SQLite перекрывают AUDIO_* из compose — STT/TTS «молчат»
       ENABLE_PERSISTENT_CONFIG: "false"
       GLOBAL_LOG_LEVEL: ${GLOBAL_LOG_LEVEL:-DEBUG}
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-gpthub-change-me-in-production}
-      # Админ при пустой БД (только первый старт); иначе залогиньтесь существующим юзером
       WEBUI_ADMIN_EMAIL: ${WEBUI_ADMIN_EMAIL:-test@mail.ru}
       WEBUI_ADMIN_PASSWORD: ${WEBUI_ADMIN_PASSWORD:-123}
       WEBUI_ADMIN_NAME: ${WEBUI_ADMIN_NAME:-Test}
       ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
-      # pending = ждут активации админом; user = сразу доступ (рекомендуется для своего сервера)
       DEFAULT_USER_ROLE: ${DEFAULT_USER_ROLE:-user}
-      # true = логин обязателен. false = без входа (только при ПУСТОЙ БД; иначе сотрите том open-webui-data)
       WEBUI_AUTH: ${WEBUI_AUTH:-true}
       ENABLE_OLLAMA_API: "false"
       ENABLE_OPENAI_API: "true"
@@ -83,9 +75,7 @@ services:
       OPENAI_API_KEYS: ${MWS_API_KEY:?set MWS_API_KEY in .env}
       WEBUI_URL: ${WEBUI_URL:-http://localhost:3000}
       WEBUI_NAME: "${WEBUI_NAME:-gena 2.0}"
-      # Модель по умолчанию в UI — авто-роутер (см. также нормализацию provider/id в шлюзе)
       DEFAULT_MODELS: '["gpthub-auto"]'
-      # Голос / диктофон: STT и TTS через тот же шлюз → MWS
       AUDIO_STT_ENGINE: openai
       AUDIO_STT_OPENAI_API_BASE_URL: http://gpthub-gateway:8080/v1
       AUDIO_STT_OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
@@ -99,7 +89,6 @@ services:
       - open-webui-data:/app/backend/data
     restart: unless-stopped
     healthcheck:
-      # В образе Open WebUI не всегда есть curl; Python есть в backend-образе
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/')"]
       interval: 15s
       timeout: 10s

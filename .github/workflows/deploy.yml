@@ -1,17 +1,3 @@
-# Сборка образа gpthub-gateway в Actions (кэш BuildKit GHA) → push в GHCR → на сервере только pull + up.
-#
-# Секреты (Settings → Secrets and variables → Actions):
-#   SSH_HOST     — IP или hostname сервера
-#   SSH_USER     — логин Linux, тот же что для ручного ssh (если переименовали пользователя — обновите секрет)
-#   SSH_PASSWORD — пароль; без кавычек и без лишнего переноса строки в конце
-# Ошибка deploy: «handshake failed … password» — неверные SSH_USER/SSH_PASSWORD или парольный вход запрещён sshd.
-# Ключ вместо пароля: appleboy/ssh-action принимает либо password, либо key (не оба) — см. README.
-#
-# Пакет ghcr.io/.../gpthub-gateway должен быть Public или на сервере: docker login ghcr.io
-#
-# Open WebUI (~7 min npm+build) и gateway собираются только если менялись соответствующие пути.
-# Ручной прогон «как раньше, всё подряд»: Actions → Build and deploy → Run workflow.
-
 name: Build and deploy
 
 on:
@@ -50,8 +36,6 @@ jobs:
               - 'open-webui-src/**'
               - 'open-webui-baobab/**'
 
-  # Два образа — параллельно; на push только при изменениях в соответствующих путях.
-  # workflow_dispatch: всегда собираем оба образа (полный прогон).
   build-gateway:
     needs: changes
     if: needs.changes.outputs.gateway == 'true' || github.event_name == 'workflow_dispatch'
@@ -110,7 +94,6 @@ jobs:
 
   deploy:
     needs: [changes, build-gateway, build-openwebui]
-    # Пропущенная сборка (нет изменений в путях) — не считается ошибкой.
     if: >
       always() &&
       needs.changes.result == 'success' &&
@@ -119,7 +102,6 @@ jobs:
       needs.build-gateway.result != 'failure' &&
       needs.build-openwebui.result != 'failure'
     runs-on: ubuntu-latest
-    # Должно быть ≥ command_timeout; запас на pull слоёв, prune, nginx loop
     timeout-minutes: 60
     steps:
       - name: Deploy over SSH
@@ -136,9 +118,7 @@ jobs:
             cd ~/mts
             git fetch origin main
             git reset --hard origin/main
-            # Остановить стек: иначе старые слои заняты, prune не освобождает место под новый pull (libtorch и т.д.)
             sudo docker compose down --remove-orphans || true
-            # Быстрая очистка при деплое; полный prune/builder — вручную на сервере
             sudo env DEPLOY_QUICK_CLEAN=1 bash gpthub-gateway/scripts/cleanup-server-disk.sh || true
             echo "=== df before pull ==="
             df -h / || true
