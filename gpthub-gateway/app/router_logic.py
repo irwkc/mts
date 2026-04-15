@@ -1,8 +1,3 @@
-"""
-Автовыбор модели под задачу. Ручной режим: пользователь выбирает конкретный id из /v1/models
-(любой кроме gpthub-auto). В авто режиме model == gpthub-auto.
-"""
-
 from __future__ import annotations
 
 import json
@@ -11,44 +6,31 @@ from typing import Any, Optional
 
 from app.config import settings
 
-# Короче этого — без вызова нейро-роутера LLM (сразу simple_turn_chat_target): приветствия, короткий чат.
 _ROUTER_SIMPLE_TURN_MAX = 360
 
-# Шире, как в gena/router: «сгенерируй коня», «нарисуй кота», без ложных срабатываний на «сгенерируй код»
-# «функц» без \b — отсекаем функцию/функции; «код» с \b — не трогаем «коня»
 _CODE_VERBS = (
     r"(?:код\b|функц|sql\b|python\b|скрипт\b|класс\b|метод\b|api\b|текст\b|ответ\b|резюме\b|отчёт\b|"
     r"письмо\b|стих\b|эссе\b|json\b|html\b|regex\b|таблиц\w*|список\b|документ\b)"
 )
-# Явный запрос картинки (первое сообщение или с явной формулировкой)
 IMAGE_GEN_RE = re.compile(
     r"("
-    # Прямые команды рисования
     r"нарисуй\b|"
     r"нарисуй\s+мне\b|"
     r"отрисуй\b|"
     r"изобрази\b|"
-    # Сделай + что-то визуальное
     r"сделай\s+(?:мне\s+)?(?:картинку|картинк\w+|фото|фотографию|фотку|фоточку|изображение|рисунок|арт\b|постер|баннер|"
     r"коллаж|обложку|аватарк\w*|иконку|визуал|иллюстрац\w*|рендер|мем\b)|"
-    # Создай + визуал
     r"создай\s+(?:мне\s+)?(?:картинк\w*|изображен\w*|фото|фотографию|рисунок|арт\b|постер|логотип|баннер|иконк\w*|"
     r"коллаж|обложку|аватарк\w*|визуал|иллюстрац\w*)|"
-    # Сотвори / визуализируй + сцена (не «код»)
     r"(?:сотвори|визуализируй)\s+(?!" + _CODE_VERBS + r")[\wа-яё\s\-«»]{2,80}|"
-    # Покажи / хочу / дай картинку
     r"покажи\s+(?:мне\s+)?(?:картинку|фото|изображение|рисунок|визуал|рендер)|"
     r"хочу\s+(?:картинку|фото|изображение|рисунок|визуал|иллюстрац\w*)|"
     r"(?:дай|вышли|скинь|кинь|покажи)\s+(?:мне\s+)?(?:картинк|фото|рендер|визуал|иллюстрац|обложк|аватар)\w*|"
     r"(?:нужна|нужен|нужны)\s+(?:мне\s+)?(?:картинк|иллюстрац|визуал|обложк|рендер|коллаж|аватар|иконк)\w*|"
-    # Сгенери / сгенерь / сгенерируй (без кода)
     r"(?:сгенери|сгенерь|сгенерируй)\s+(?!" + _CODE_VERBS + r")"
     r"(?:изображение|картинк\w*|фото\w*|логотип|иконк\w*|иллюстрац\w*|арт\b|постер|[\wа-яё\-]{2,48})|"
-    # Фото как существительное
     r"(?:сделай|создай|нарисуй|придумай|генерируй)\s+(?:мне\s+)?фото\w*|"
-    # Упоминание генераторов / t2i
     r"\b(?:text-to-image|t2i|img2img|dall-?e|midjourney|миджорни|stable\s*diffusion|sdxl|flux)\b|"
-    # English
     r"text-to-image|generate\s+an?\s+image|create\s+an?\s+(?:image|picture|illustration)|"
     r"make\s+(?:me\s+)?(?:an?\s+)?(?:image|picture|photo|illustration|visual)\b|"
     r"render\s+(?:an?\s+)?(?:image|picture|scene)\b|"
@@ -61,13 +43,11 @@ IMAGE_GEN_RE = re.compile(
     re.I,
 )
 
-# После «добавь» — не считать запросом на сцену (документ/чат)
 _DOC_WORD_AFTER_ADD = (
     r"пункт|ссылку|ссылк|текст|заголовок|абзац|строку|файл|запись|комментарий|"
     r"примечание|сноску|оглавление|нумерацию|таблицу|формулу|тег|метку|раздел|"
     r"столбец|ячейку|страницу|слайд|подпись|цитату|список"
 )
-# Англ. «add a …» в чате — не путать с add section/link
 _DOC_WORD_AFTER_ADD_EN = (
     r"section|link|paragraph|footnote|comment|row|column|cell|page|slide|"
     r"heading|title|line|file|tag|label|chapter|index|bullet|note"
@@ -79,7 +59,17 @@ SEARCH_RE = re.compile(
     re.I,
 )
 URL_RE = re.compile(r"https?://[^\s)]+", re.I)
-# «Глубокое исследование» — совпадает с web_tools.DEEP_RESEARCH_RE (быстрый путь не глушит ресерч)
+
+_DOC_WORD_AFTER_ADD = (
+    r"пункт|ссылку|ссылк|текст|заголовок|абзац|строку|файл|запись|комментарий|"
+    r"примечание|сноску|оглавление|нумерацию|таблицу|формулу|тег|метку|раздел|"
+    r"столбец|ячейку|страницу|слайд|подпись|цитату|список"
+)
+_DOC_WORD_AFTER_ADD_EN = (
+    r"section|link|paragraph|footnote|comment|row|column|cell|page|slide|"
+    r"heading|title|line|file|tag|label|chapter|index|bullet|note"
+)
+
 _DEEP_RESEARCH_HINT = re.compile(
     r"(deep\s+research|глубок(ое|ий)\s+исследован|глубокий\s+поиск|"
     r"многошагов(ый|ого)\s+поиск|iterative\s+search|исследуй\s+тему|"
@@ -87,7 +77,6 @@ _DEEP_RESEARCH_HINT = re.compile(
     re.I,
 )
 
-# --- Режим «gena» (эвристики legacy router, без отдельного LLM-роутера) ---
 _GENA_CODE_KEYWORDS = re.compile(
     r"(напиш(и\b|ь\b)|реализу(й\b|ет\b|ация)|покаж(и\b|ет\b)|сдела(й\b|ть\b)|исправ(ь\b|и\b|ляй)|почин(и\b|ь\b)|отлад(ь\b|и\b)|задеплой|"
     r"код|функц|алгоритм|скрипт|програм|python|py\b|js\b|javascript|typescript|ts\b|sql|ошибк|баг|bug\b|debug\b|"
@@ -105,19 +94,16 @@ _GENA_LONG_DOC_KEYWORDS = re.compile(
 
 
 def gena_chat_target() -> str:
-    """Модель «обычного чата» (аналог mws-gpt-alpha в gena/router)."""
     g = (settings.gena_chat_model or "").strip()
     return g if g else settings.default_llm
 
 
 def simple_turn_chat_target() -> str:
-    """Модель для коротких реплик (auto:simple_chat). Иначе совпадает с gena_chat_target."""
     s = (settings.simple_chat_model or "").strip()
     return s if s else gena_chat_target()
 
 
 def strip_gena_assistant_markers(messages: list[dict[str, Any]]) -> None:
-    """Убрать префиксы перехватов из истории, чтобы модель не копировала их."""
     pat = re.compile(
         r"^\*\((?:Авто-выбор модели|Рисую изображение|Deep Research|Презентация)[^*]*\)\*\s*\n*",
         re.MULTILINE,
@@ -131,7 +117,6 @@ def strip_gena_assistant_markers(messages: list[dict[str, Any]]) -> None:
 
 
 def _coerce_available_model(preferred: str, available_ids: set[str]) -> str:
-    """Вернуть preferred, если есть в каталоге MWS, иначе первый подходящий fallback."""
     if preferred in available_ids:
         return preferred
     for alt in (
@@ -157,10 +142,6 @@ def pick_route_gena(
     messages: list[dict[str, Any]],
     available_ids: set[str],
 ) -> tuple[str, str]:
-    """
-    Автовыбор по правилам gena (router.py select_model): длинный текст / код / чат.
-    Сначала vision/audio/картинка-поиск как в детерминированном роутере.
-    """
     if message_has_image(messages):
         vm = settings.vision_model
         if vm in available_ids:
@@ -201,10 +182,6 @@ def pick_route_gena(
 
 
 def normalize_requested_model(model_id: str) -> str:
-    """
-    Open WebUI шлёт model как «gpthub-auto» или с префиксом провайдера, напр. openai/gpthub-auto.
-    Без нормализации роутер не узнаёт авто-режим и MWS может получить несуществующий id.
-    """
     s = (model_id or "").strip()
     if not s:
         return ""
@@ -273,10 +250,6 @@ def try_fast_path_default_llm_for_simple_turn(
     messages: list[dict[str, Any]],
     available_ids: set[str],
 ) -> tuple[str, str] | None:
-    """
-    Короткий текстовый ход без картинки/аудио и без явных триггеров (картинка, поиск, URL, deep research).
-    Не вызывает отдельный LLM-роутер — сразу основная chat-модель (стабильные ответы на «привет», мелкий диалог).
-    """
     if message_has_image(messages) or message_has_audio(messages):
         return None
     lu = last_user_message(messages)
@@ -290,7 +263,6 @@ def try_fast_path_default_llm_for_simple_turn(
     target = simple_turn_chat_target()
     if target in available_ids:
         return (target, "auto:simple_chat")
-    # Тот же fallback, что и везде в gena: не брать «первую по алфавиту» (часто bge-m3 → пустой чат).
     coerced = _coerce_available_model(target, available_ids)
     return (coerced, "auto:simple_chat")
 
@@ -299,7 +271,6 @@ def pick_route_deterministic(
     messages: list[dict[str, Any]],
     available_ids: set[str],
 ) -> tuple[str, str]:
-    """Автовыбор без LLM (правила)."""
     lu = last_user_message(messages)
     text = _content_to_text(lu.get("content") if lu else None)
 
@@ -312,15 +283,12 @@ def pick_route_deterministic(
                 return candidate, "auto:vision"
 
     if message_has_audio(messages):
-        # Аудио: транскрипция обрабатывается отдельным эндпоинтом; для chat оставляем LLM
-        # после того как клиент вставит текст — здесь выбираем LLM по умолчанию.
         dm = settings.default_llm
         if dm in available_ids:
             return dm, "auto:audio_then_llm"
         return next(iter(available_ids - {settings.auto_model_id}), settings.default_llm), "auto:audio"
 
     if IMAGE_GEN_RE.search(text):
-        # Сама генерация — через /v1/images/generations; в chat идёт обычная LLM как запасной путь
         dm = settings.default_llm
         if dm in available_ids:
             return dm, "auto:image_gen_intent"
@@ -341,7 +309,6 @@ def pick_route_deterministic(
     dm = settings.default_llm
     if dm in available_ids:
         return dm, "auto:default_llm"
-    # любая первая подходящая chat-модель
     for x in sorted(available_ids):
         if x != settings.auto_model_id:
             return x, "auto:fallback"
@@ -353,9 +320,6 @@ def pick_route(
     requested_model: str,
     available_ids: set[str],
 ) -> tuple[str, str]:
-    """
-    Ручной режим или детерминированный авто-режим (для тестов / fallback).
-    """
     req = normalize_requested_model(requested_model)
     if req and req != settings.auto_model_id:
         return apply_manual_route(req, available_ids)

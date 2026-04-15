@@ -23,11 +23,7 @@ class Settings(BaseSettings):
             return Path("/data")
         return Path(str(v))
 
-    log_level: str = Field(
-        default="INFO",
-        validation_alias="GPTHUB_LOG_LEVEL",
-        description="Уровень логов шлюза: DEBUG, INFO, WARNING, ERROR",
-    )
+    log_level: str = Field(default="INFO", validation_alias="GPTHUB_LOG_LEVEL")
 
     @field_validator("log_level", mode="before")
     @classmethod
@@ -37,16 +33,8 @@ class Settings(BaseSettings):
             return s
         return "INFO"
 
-    log_json_max_chars: int = Field(
-        default=16_000,
-        validation_alias="GPTHUB_LOG_JSON_MAX_CHARS",
-        description="Санитизированный JSON тел в логах chat (0 = только одна строка-сводка без тела)",
-    )
-    log_upstream_error_chars: int = Field(
-        default=8_000,
-        validation_alias="GPTHUB_LOG_UPSTREAM_ERROR_CHARS",
-        description="Макс. символов тела ответа MWS при ошибке (4xx/5xx)",
-    )
+    log_json_max_chars: int = Field(default=16_000, validation_alias="GPTHUB_LOG_JSON_MAX_CHARS")
+    log_upstream_error_chars: int = Field(default=8_000, validation_alias="GPTHUB_LOG_UPSTREAM_ERROR_CHARS")
 
     @field_validator("log_json_max_chars", "log_upstream_error_chars", mode="before")
     @classmethod
@@ -57,9 +45,7 @@ class Settings(BaseSettings):
             return 0
         return max(0, n)
 
-    # Router / defaults (override via env after GET /v1/models on real deployment)
     auto_model_id: str = "gpthub-auto"
-    # Отображаемое имя авто-модели в UI (список моделей Open WebUI)
     auto_model_display_name: str = Field(
         default="gena 2.0",
         validation_alias="GPTHUB_AUTO_MODEL_DISPLAY_NAME",
@@ -75,14 +61,12 @@ class Settings(BaseSettings):
     default_llm: str = "mws-gpt-alpha"
     vision_model: str = "cotype-pro-vl-32b"
     image_gen_model: str = "qwen-image"
-    # Правка существующей картинки: /images/edits или img2img; пустая модель = та же, что для generations
     image_edit_enabled: bool = Field(default=True, validation_alias="GPTHUB_IMAGE_EDIT_ENABLED")
     image_edit_model: str = Field(default="", validation_alias="GPTHUB_IMAGE_EDIT_MODEL")
     image_edit_input_fidelity: str = Field(default="high", validation_alias="GPTHUB_IMAGE_EDIT_FIDELITY")
     image_edit_img2img_strength: float = Field(
         default=0.42,
         validation_alias="GPTHUB_IMAGE_EDIT_STRENGTH",
-        description="Сила денойза при img2img fallback (если провайдер поддерживает)",
     )
 
     @field_validator("image_edit_input_fidelity", mode="before")
@@ -101,7 +85,6 @@ class Settings(BaseSettings):
         return max(0.05, min(0.95, x))
 
     asr_model: str = "whisper-medium"
-    # Пусто — не передавать language в Whisper (авто; удобно для English). ru — стабильнее для русской речи.
     asr_default_language: str = Field(
         default="",
         validation_alias="GPTHUB_ASR_DEFAULT_LANGUAGE",
@@ -110,7 +93,6 @@ class Settings(BaseSettings):
     tts_override_model: str = Field(default="", validation_alias="GPTHUB_TTS_MODEL")
     tts_override_voice: str = Field(default="", validation_alias="GPTHUB_TTS_VOICE")
     embedding_model: str = "bge-m3"
-    # id через запятую: не использовать как fallback для chat/completions.
     non_chat_model_ids: str = Field(
         default="bge-m3",
         validation_alias="GPTHUB_NON_CHAT_MODEL_IDS",
@@ -128,25 +110,15 @@ class Settings(BaseSettings):
     chunk_size: int = 900
     chunk_overlap: int = 120
 
-    # Память в духе OpenClaw: факты через LLM + лимит строк в SQLite
     memory_max_items_per_user: int = Field(
         default=400, validation_alias="GPTHUB_MEMORY_MAX_ITEMS"
     )
-    memory_llm_digest: bool = Field(
-        default=True,
-        validation_alias="GPTHUB_MEMORY_LLM_DIGEST",
-        description="После ответа извлекать 0..N фактов отдельным вызовом LLM",
-    )
+    memory_llm_digest: bool = Field(default=True, validation_alias="GPTHUB_MEMORY_LLM_DIGEST")
     memory_digest_model: str = Field(
         default="mws-gpt-alpha",
         validation_alias="GPTHUB_MEMORY_DIGEST_MODEL",
     )
-    memory_raw_fallback: bool = Field(
-        default=False,
-        validation_alias="GPTHUB_MEMORY_RAW_FALLBACK",
-        description="Если digest пуст — всё равно сохранять сырой обмен (шумнее)",
-    )
-    # Длинные диалоги: сжать «голову» переписки в сводку (дороже по токенам)
+    memory_raw_fallback: bool = Field(default=False, validation_alias="GPTHUB_MEMORY_RAW_FALLBACK")
     memory_compress_enabled: bool = Field(
         default=False,
         validation_alias="GPTHUB_MEMORY_COMPRESS_CONTEXT",
@@ -160,9 +132,7 @@ class Settings(BaseSettings):
         validation_alias="GPTHUB_MEMORY_COMPRESS_KEEP",
     )
 
-    # Префикс [GPTHub route: …] в system при true (демо / отладка)
     router_debug: bool = Field(default=True, validation_alias="GPTHUB_ROUTER_DEBUG")
-    # gena — как gena/router select_model + перехваты; legacy — старые правила шлюза (llm → gena)
     router_mode: str = Field(default="gena", validation_alias="GPTHUB_ROUTER_MODE")
     gena_code_model: str = Field(
         default="qwen3-coder-480b-a35b",
@@ -172,12 +142,10 @@ class Settings(BaseSettings):
         default="cotype-pro-vl-32b",
         validation_alias="GPTHUB_GENA_LONG_DOC_MODEL",
     )
-    # Аналог mws-gpt-alpha в gena/router — «обычный диалог»; в router_logic пустая строка = default_llm
     gena_chat_model: str = Field(
         default="mws-gpt-alpha",
         validation_alias="GPTHUB_GENA_CHAT_MODEL",
     )
-    # Только короткие реплики (быстрый путь auto:simple_chat). Пусто = как GPTHUB_GENA_CHAT_MODEL.
     simple_chat_model: str = Field(
         default="",
         validation_alias="GPTHUB_SIMPLE_CHAT_MODEL",
@@ -186,7 +154,6 @@ class Settings(BaseSettings):
         default=600,
         validation_alias="GPTHUB_GENA_LONG_DOC_WORDS",
     )
-    # Подмешивается в system: кто такой ассистент (пусто — отключить)
     gena_system_identity: str = Field(
         default=(
             "Идентичность: ты — gena 2.0, цифровой ассистент. "
@@ -201,18 +168,11 @@ class Settings(BaseSettings):
         validation_alias="GPTHUB_GENA_IDENTITY",
     )
 
-    # Публичный URL шлюза для ссылок на /static/... (презентации). Пусто — берётся из заголовка запроса.
     public_base_url: str = Field(default="", validation_alias="GPTHUB_PUBLIC_BASE_URL")
-    # ChromaDB (как в gena/router/memory.py); пустой host — отключено, только SQLite-память шлюза
     chroma_host: str = Field(default="", validation_alias="CHROMA_HOST")
     chroma_port: int = Field(default=8000, validation_alias="CHROMA_PORT")
 
-    # Надёжность / производительность (не «безопасность»)
-    mws_http_retries: int = Field(
-        default=2,
-        validation_alias="GPTHUB_MWS_HTTP_RETRIES",
-        description="Повторы при 502/503/504/429 и таймауте (итого попыток = 1 + retries)",
-    )
+    mws_http_retries: int = Field(default=2, validation_alias="GPTHUB_MWS_HTTP_RETRIES")
     mws_retry_backoff_sec: float = Field(
         default=1.0,
         validation_alias="GPTHUB_MWS_RETRY_BACKOFF_SEC",
@@ -228,27 +188,21 @@ class Settings(BaseSettings):
     max_chat_payload_chars: int = Field(
         default=2_000_000,
         validation_alias="GPTHUB_MAX_CHAT_PAYLOAD_CHARS",
-        description="Лимит размера тела chat/completions (JSON), защита от случайно огромных запросов; для VLM одно фото в base64 часто >500k символов",
     )
     gena_max_presentation_slides: int = Field(
         default=20,
         validation_alias="GPTHUB_MAX_PRESENTATION_SLIDES",
     )
-    # Базовый PPTX для сборки (пусто — встроенный файл keynote_base.pptx). См. gena_pptx_use_bundled_template.
     gena_pptx_template_path: str = Field(
         default="",
         validation_alias="GPTHUB_PPTX_TEMPLATE_PATH",
     )
-    # True — грузить app/assets/keynote_base.pptx (или кастомный шаблон). False — голый Presentation() (часто лучше для Keynote).
     gena_pptx_use_bundled_template: bool = Field(
         default=False,
         validation_alias="GPTHUB_PPTX_USE_BUNDLED_TEMPLATE",
     )
-    # Второе сохранение через Presentation(path) — у PowerPoint иногда помогает; Keynote часто ломает импорт — по умолчанию выкл.
     gena_pptx_roundtrip: bool = Field(default=False, validation_alias="GPTHUB_PPTX_ROUNDTRIP")
-    # Проверка ZIP/обязательных частей после записи.
     gena_pptx_validate_zip: bool = Field(default=True, validation_alias="GPTHUB_PPTX_VALIDATE_ZIP")
-    # Длинная сторона картинки для встраивания (даунскейл при превышении).
     gena_pptx_max_image_px: int = Field(
         default=4096,
         validation_alias="GPTHUB_PPTX_MAX_IMAGE_PX",

@@ -18,6 +18,7 @@
 	import { WEBUI_VERSION, WEBUI_API_BASE_URL } from '$lib/constants';
 	import { compareVersion } from '$lib/utils';
 	import { neuralLog } from '$lib/utils/webuiClientLog';
+	import { mergeGenaDialogueDefaults, normalizeUiFromStored } from '$lib/utils/genaDialogueDefaults';
 
 	import {
 		config,
@@ -102,9 +103,7 @@
 			}
 		}
 
-		if (userSettings?.ui) {
-			settings.set(userSettings.ui);
-		}
+		settings.set(mergeGenaDialogueDefaults(normalizeUiFromStored(userSettings)));
 
 		if (cb) {
 			await cb();

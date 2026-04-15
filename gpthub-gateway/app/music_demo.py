@@ -17,7 +17,6 @@ from pydub import AudioSegment
 
 logger = logging.getLogger("gpthub.music_demo")
 
-# Триггеры демо MP3 (нестримовый чат; см. chat_completions → maybe_music_demo_chat)
 MUSIC_INTENT_RE = re.compile(
     r"("
     r"(?:сгенерируй|сгенерь|создай|напиши|сделай)(?:\s+мне)?\s+(?:короткую\s+)?(?:мелоди|музык|трек|композици)|"
@@ -39,7 +38,6 @@ def user_wants_music_demo(text: str) -> bool:
 
 
 _SAMPLE_RATE = 44100
-# Вокальная линия под песню: ~1–1.5 мин; верхняя граница синтеза с небольшим запасом
 _MAX_NOTES = 240
 _MAX_TOTAL_SEC = 95.0
 _TARGET_MIN_SEC = 60.0
@@ -56,7 +54,6 @@ def _sine_tone(freq: float, duration: float, sr: int = _SAMPLE_RATE, vol: float 
     n = max(1, int(duration * sr))
     t = np.arange(n, dtype=np.float64) / sr
     x = vol * np.sin(2.0 * np.pi * freq * t)
-    # простой fade 5 ms
     fade = min(int(0.005 * sr), n // 4)
     if fade > 0:
         x[:fade] *= np.linspace(0.0, 1.0, fade)

@@ -38,7 +38,6 @@ services:
       GPTHUB_GENA_CODE_MODEL: ${GPTHUB_GENA_CODE_MODEL:-qwen3-coder-480b-a35b}
       GPTHUB_GENA_LONG_DOC_MODEL: ${GPTHUB_GENA_LONG_DOC_MODEL:-cotype-pro-vl-32b}
       GPTHUB_GENA_CHAT_MODEL: ${GPTHUB_GENA_CHAT_MODEL:-mws-gpt-alpha}
-      # Только короткие реплики в авто-режиме (gpthub-auto); пусто = как GPTHUB_GENA_CHAT_MODEL
       GPTHUB_SIMPLE_CHAT_MODEL: ${GPTHUB_SIMPLE_CHAT_MODEL:-}
       GPTHUB_AUTO_MODEL_DISPLAY_NAME: "${GPTHUB_AUTO_MODEL_DISPLAY_NAME:-gena 2.0}"
       GPTHUB_LOG_LEVEL: ${GPTHUB_LOG_LEVEL:-DEBUG}
@@ -56,10 +55,14 @@ services:
       start_period: 120s
 
   open-webui:
-    image: ${OPENWEBUI_IMAGE:-ghcr.io/irwkc/mts-open-webui-baobab:latest}
+    image: ${OPENWEBUI_IMAGE:-ghcr.io/irwkc/mts-open-webui:latest}
     build:
-      context: .
-      dockerfile: open-webui-baobab/Dockerfile
+      context: ./open-webui-src
+      dockerfile: Dockerfile
+      args:
+        BUILD_HASH: ${BUILD_HASH:-dev}
+        # true: подставить ./build с хоста (cd open-webui-src && npm run build), без vite в Docker — меньше OOM
+        USE_PREBUILT_FRONTEND: ${USE_PREBUILT_FRONTEND:-false}
     depends_on:
       gpthub-gateway:
         condition: service_healthy

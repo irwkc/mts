@@ -38,7 +38,6 @@ def _get_client():
             port=int(settings.chroma_port),
             settings=ChromaSettings(anonymized_telemetry=False),
         )
-        # Проверяем соединение
         cl.heartbeat()
         _client = cl
         logger.info("ChromaDB connected: %s:%d", host, settings.chroma_port)
@@ -82,7 +81,6 @@ def recall_block(user_id: str, query: str, n_results: int = 5) -> str:
         return "Chroma (долгая память, gena-стиль):\n" + "\n".join(f"- {x}" for x in lines)
     except Exception as e:
         logger.warning("chroma recall: %s", e)
-        # Сбрасываем клиент чтобы переподключиться в следующий раз
         global _client
         _client = None
         return ""
