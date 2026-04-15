@@ -169,7 +169,15 @@ if [[ -f /tmp/gpthub_tts_test.mp3 ]]; then
     echo "ASR FAIL (curl)"
     curl_chat_hint
   else
-    echo "$resp_asr" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('text', r)[:300])" || echo "ASR invalid JSON"
+    echo "$resp_asr" | python3 -c "
+import sys, json
+r = json.load(sys.stdin)
+t = r.get('text')
+if isinstance(t, str):
+    print(t[:300])
+else:
+    print(json.dumps(r, ensure_ascii=False)[:500])
+" || echo "ASR invalid JSON"
   fi
 else
   echo "пропуск: нет /tmp/gpthub_tts_test.mp3"
