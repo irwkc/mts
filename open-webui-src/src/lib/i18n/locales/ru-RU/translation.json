@@ -2102,6 +2102,7 @@
 	"Voice mode": "Режим голоса",
 	"Voice response in progress…": "Ответ озвучивается…",
 	"Reply text is shown in the voice call panel.": "Текст ответа показывается в голосовой панели.",
+	"Using browser voice; server TTS unavailable.": "Используется голос браузера: серверный TTS недоступен.",
 	"Transcript": "Диктовка",
 	"Conversation mode": "Режим беседы",
 	"After the assistant speaks, turn on the microphone for your next phrase (text chat only).": "После ответа ассистента снова включать микрофон для следующей фразы (только обычный чат, не голосовой звонок).",

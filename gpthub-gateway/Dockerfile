@@ -32,6 +32,7 @@ RUN python -m pip install --upgrade pip setuptools wheel \
       sleep 20; \
     done
 
+COPY assets ./assets
 COPY app ./app
 
 ENV PYTHONUNBUFFERED=1

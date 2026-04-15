@@ -47,6 +47,8 @@
 	let cameraStream = null;
 
 	let chatStreaming = false;
+	/** Один раз предупредить, что озвучка пошла через Web Speech API. */
+	let voiceTtsBrowserFallbackNotified = false;
 	let rmsLevel = 0;
 	let hasStartedSpeaking = false;
 	let mediaRecorder;
@@ -397,6 +399,8 @@
 
 						currentUtterance = new SpeechSynthesisUtterance(content);
 						currentUtterance.rate = $settings.audio?.tts?.playbackRate ?? 1;
+						currentUtterance.lang =
+							($settings?.audio?.stt?.language ?? '').trim() || 'ru-RU';
 
 						if (voice) {
 							currentUtterance.voice = voice;
@@ -522,6 +526,18 @@
 					} else if (res) {
 						console.error('TTS HTTP error', res.status, await res.text?.().catch(() => ''));
 					}
+					if (!synthesized) {
+						audioCache.set(content, { __ttsBrowser: true });
+						synthesized = true;
+						if (!voiceTtsBrowserFallbackNotified) {
+							toast.info(
+								get(i18n).t(
+									'Using browser voice; server TTS unavailable.'
+								)
+							);
+							voiceTtsBrowserFallbackNotified = true;
+						}
+					}
 				} else {
 					audioCache.set(content, true);
 					synthesized = true;
@@ -551,6 +567,20 @@
 
 				if (audioCache.has(content)) {
 					const cached = audioCache.get(content);
+					if (cached && typeof cached === 'object' && '__ttsBrowser' in cached) {
+						if (($settings?.showEmojiInCall ?? false) && emojiCache.has(content)) {
+							emoji = emojiCache.get(content);
+						} else {
+							emoji = null;
+						}
+						try {
+							await speakSpeechSynthesisHandler(content);
+						} catch (error) {
+							console.error('Browser TTS failed:', error);
+						}
+						await new Promise((resolve) => setTimeout(resolve, 200));
+						continue;
+					}
 					if (cached && typeof cached === 'object' && '__ttsFailed' in cached) {
 						await new Promise((resolve) => setTimeout(resolve, 50));
 						continue;

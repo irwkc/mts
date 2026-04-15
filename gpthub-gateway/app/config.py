@@ -109,6 +109,21 @@ class Settings(BaseSettings):
     # Если MWS не принимает tts-1/alloy из Open WebUI — задайте id модели и голоса из GET /v1/models (или документации).
     tts_override_model: str = Field(default="", validation_alias="GPTHUB_TTS_MODEL")
     tts_override_voice: str = Field(default="", validation_alias="GPTHUB_TTS_VOICE")
+    tts_auto_retry_catalog: bool = Field(
+        default=True,
+        validation_alias="GPTHUB_TTS_AUTO_RETRY_CATALOG",
+        description="При 401/403 на TTS перебирать model из GET /v1/models (приоритет id с tts/speech/voice)",
+    )
+    tts_fallback_on_denial: bool = Field(
+        default=False,
+        validation_alias="GPTHUB_TTS_FALLBACK_ON_DENIAL",
+        description="Если true и MWS отказал — отдать короткий тихий MP3 (200); иначе 401/403 (клиент может уйти в браузерный TTS)",
+    )
+    tts_fallback_on_5xx: bool = Field(
+        default=False,
+        validation_alias="GPTHUB_TTS_FALLBACK_ON_5XX",
+        description="Если true и MWS вернул 5xx на /audio/speech (например TTS нет в каталоге ключа) — тихий MP3 (200) вместо 502",
+    )
     embedding_model: str = "bge-m3"
     # id через запятую: не использовать как fallback для chat/completions.
     non_chat_model_ids: str = Field(

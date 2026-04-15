@@ -268,6 +268,55 @@ def _configure_logging() -> None:
 _configure_logging()
 logger = logging.getLogger("gpthub")
 
+_TTS_FALLBACK_MP3_CACHE: Optional[bytes] = None
+
+
+def _tts_fallback_mp3_bytes() -> bytes:
+    global _TTS_FALLBACK_MP3_CACHE
+    if _TTS_FALLBACK_MP3_CACHE is not None:
+        return _TTS_FALLBACK_MP3_CACHE
+    p = Path(__file__).resolve().parent.parent / "assets" / "tts_fallback.mp3"
+    if p.is_file():
+        _TTS_FALLBACK_MP3_CACHE = p.read_bytes()
+    else:
+        _TTS_FALLBACK_MP3_CACHE = b""
+        logger.warning("TTS fallback MP3 missing: %s", p)
+    return _TTS_FALLBACK_MP3_CACHE
+
+
+async def _tts_catalog_model_ids(client: httpx.AsyncClient) -> list[str]:
+    base = settings.mws_api_base.rstrip("/")
+    try:
+        rm = await client.get(
+            f"{base}/models",
+            headers={"Authorization": f"Bearer {settings.mws_api_key}"},
+            timeout=60.0,
+        )
+        if rm.status_code != 200:
+            return []
+        data = rm.json().get("data") or []
+        ids = [str(m.get("id")) for m in data if m.get("id")]
+    except Exception as e:
+        logger.debug("TTS catalog GET /models: %s", e)
+        return []
+
+    def prio(i: str) -> tuple[int, str]:
+        low = i.lower()
+        if "tts" in low or "speech" in low or "voice" in low or "dub" in low:
+            return (0, i)
+        if "whisper" in low:
+            return (3, i)
+        return (1, i)
+
+    ids.sort(key=prio)
+    seen: set[str] = set()
+    out: list[str] = []
+    for i in ids:
+        if i not in seen:
+            seen.add(i)
+            out.append(i)
+    return out[:50]
+
 
 def _upstream_json_error(e: httpx.HTTPStatusError) -> JSONResponse:
     return JSONResponse(
@@ -279,6 +328,26 @@ _models_cache: dict[str, Any] = {"t": 0.0, "data": None}
 _memory: Optional[MemoryStore] = None
 _rag: Optional[RAGStore] = None
 _client = MWSClient()
+
+# TTS: MWS иногда даёт 500 на «чужой» model — перебираем каталог (как при 401/403).
+_TTS_CATALOG_RETRY_STATUSES = frozenset({401, 403, 429, 500, 502, 503})
+
+
+def _bearer_token_from_request(request: Request) -> str:
+    h = request.headers.get("authorization") or request.headers.get("Authorization") or ""
+    parts = h.split(None, 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return ""
+    return (parts[1] or "").strip()
+
+
+def _mws_api_key_for_audio(request: Request) -> str:
+    """Open WebUI шлёт в шлюз Bearer с MWS-ключом (AUDIO_TTS_*/STT); иначе — ключ из env шлюза."""
+    tok = _bearer_token_from_request(request)
+    # Не прокидывать в MWS сессионный JWT из чужих клиентов (обычно начинается с eyJ).
+    if tok and not tok.startswith("eyJ"):
+        return tok
+    return (settings.mws_api_key or "").strip()
 
 
 @asynccontextmanager
@@ -512,6 +581,17 @@ async def audio_speech(request: Request) -> Response:
             {"error": {"message": "JSON object required", "type": "invalid_request"}},
             status_code=400,
         )
+    api_key = _mws_api_key_for_audio(request)
+    if not api_key:
+        return JSONResponse(
+            {
+                "error": {
+                    "message": "Нет ключа MWS: задайте MWS_API_KEY в шлюзе или Authorization: Bearer при запросе (как Open WebUI).",
+                    "type": "missing_api_key",
+                }
+            },
+            status_code=401,
+        )
     om = (settings.tts_override_model or "").strip()
     if om:
         body = {**body, "model": om}
@@ -520,24 +600,118 @@ async def audio_speech(request: Request) -> Response:
         body = {**body, "voice": ov}
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
-            r = await client.post(
-                f"{settings.mws_api_base.rstrip('/')}/audio/speech",
-                headers={
-                    "Authorization": f"Bearer {settings.mws_api_key}",
-                    "Content-Type": "application/json",
-                },
-                content=json.dumps(body),
-            )
-        if r.status_code >= 400:
-            err_n = max(500, int(settings.log_upstream_error_chars))
-            logger.warning(
-                "MWS TTS POST /audio/speech -> HTTP %s body[:%s]=%r",
-                r.status_code,
-                err_n,
-                (r.text or "")[:err_n],
-            )
-        ct = r.headers.get("content-type", "application/octet-stream")
-        return Response(content=r.content, status_code=r.status_code, media_type=ct)
+            url = f"{settings.mws_api_base.rstrip('/')}/audio/speech"
+            hdrs = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            r = await client.post(url, headers=hdrs, content=json.dumps(body))
+
+            if r.status_code in _TTS_CATALOG_RETRY_STATUSES and settings.tts_auto_retry_catalog:
+                try:
+                    catalog = await _tts_catalog_model_ids(client)
+                except Exception as exc:
+                    logger.warning("TTS catalog fetch failed: %s", exc)
+                    catalog = []
+                tried: set[str] = {str(body.get("model") or "")}
+                attempts = 0
+                for mid in catalog:
+                    if mid in tried:
+                        continue
+                    tried.add(mid)
+                    attempts += 1
+                    if attempts > 40:
+                        break
+                    try:
+                        r_try = await client.post(
+                            url,
+                            headers=hdrs,
+                            content=json.dumps({**body, "model": mid}),
+                        )
+                    except Exception as exc:
+                        logger.warning("TTS retry POST model=%s: %s", mid, exc)
+                        continue
+                    ct_try = (r_try.headers.get("content-type") or "").lower()
+                    blob = r_try.content or b""
+                    looks_audio = (
+                        r_try.status_code == 200
+                        and "json" not in ct_try
+                        and (not blob or blob[:1] != b"{")
+                        and (
+                            "audio" in ct_try
+                            or blob[:2] == b"\xff\xfb"
+                            or blob[:3] == b"ID3"
+                        )
+                    )
+                    if looks_audio:
+                        logger.info("TTS catalog auto-retry OK model=%s", mid)
+                        r = r_try
+                        break
+                    r = r_try
+                    logger.debug("TTS catalog retry model=%s -> HTTP %s", mid, r_try.status_code)
+
+            if r.status_code >= 400:
+                err_n = max(500, int(settings.log_upstream_error_chars))
+                tail = (r.text or "")[:err_n]
+                logger.warning(
+                    "MWS TTS POST /audio/speech -> HTTP %s body[:%s]=%r",
+                    r.status_code,
+                    err_n,
+                    tail,
+                )
+                if r.status_code in (401, 403) and settings.tts_fallback_on_denial:
+                    fb = _tts_fallback_mp3_bytes()
+                    if fb:
+                        logger.warning(
+                            "MWS TTS denied after retries; silent fallback MP3 (%s B)",
+                            len(fb),
+                        )
+                        return Response(
+                            content=fb,
+                            status_code=200,
+                            media_type="audio/mpeg",
+                            headers={"X-GPTHUB-TTS-Fallback": "silent"},
+                        )
+                if r.status_code >= 500 and settings.tts_fallback_on_5xx:
+                    fb = _tts_fallback_mp3_bytes()
+                    if fb:
+                        logger.warning(
+                            "MWS TTS HTTP %s; silent fallback MP3 (%s B) (GPTHUB_TTS_FALLBACK_ON_5XX)",
+                            r.status_code,
+                            len(fb),
+                        )
+                        return Response(
+                            content=fb,
+                            status_code=200,
+                            media_type="audio/mpeg",
+                            headers={"X-GPTHUB-TTS-Fallback": "silent-5xx"},
+                        )
+                if r.status_code in (401, 403):
+                    model = body.get("model", "")
+                    voice = body.get("voice", "")
+                    hint = (
+                        f"MWS отклонил синтез речи (HTTP {r.status_code}). "
+                        f"Проверьте MWS_API_KEY и доступ к TTS (model={model!r}, voice={voice!r}). "
+                        f"Ответ MWS: {tail or '(пусто)'}"
+                    )
+                    return JSONResponse(
+                        {"error": {"message": hint, "type": "mws_audio_denied"}},
+                        status_code=r.status_code,
+                    )
+                if r.status_code >= 500:
+                    model = body.get("model", "")
+                    hint = (
+                        f"MWS вернул ошибку синтеза (HTTP {r.status_code}). "
+                        f"Перебор моделей из каталога уже выполнен (если включён GPTHUB_TTS_AUTO_RETRY_CATALOG). "
+                        f"model={model!r}. Ответ MWS: {tail or '(пусто)'}"
+                    )
+                    return JSONResponse(
+                        {"error": {"message": hint, "type": "mws_tts_server_error"}},
+                        status_code=502,
+                    )
+
+            ct = r.headers.get("content-type", "application/octet-stream")
+            return Response(content=r.content, status_code=r.status_code, media_type=ct)
     except Exception as e:
         logger.exception("TTS proxy failed: %s", e)
         return JSONResponse(
@@ -560,11 +734,22 @@ async def transcribe(request: Request) -> Response:
         lang = (settings.asr_default_language or "").strip()
         if lang:
             data["language"] = lang
+    api_key = _mws_api_key_for_audio(request)
+    if not api_key:
+        return JSONResponse(
+            {
+                "error": {
+                    "message": "Нет ключа MWS: задайте MWS_API_KEY в шлюзе или Authorization: Bearer при запросе (как Open WebUI).",
+                    "type": "missing_api_key",
+                }
+            },
+            status_code=401,
+        )
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
             r = await client.post(
                 f"{settings.mws_api_base.rstrip('/')}/audio/transcriptions",
-                headers={"Authorization": f"Bearer {settings.mws_api_key}"},
+                headers={"Authorization": f"Bearer {api_key}"},
                 files=files,
                 data=data,
             )

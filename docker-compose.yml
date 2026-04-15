@@ -18,6 +18,8 @@ services:
     environment:
       MWS_API_BASE: ${MWS_API_BASE:-https://api.gpt.mws.ru/v1}
       MWS_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
+      # Если у ключа MWS нет TTS в каталоге и MWS отдаёт 5xx — true даёт тихий MP3 (200) вместо 502 (см. GPTHUB_TTS_FALLBACK_ON_DENIAL для 401/403).
+      GPTHUB_TTS_FALLBACK_ON_5XX: ${GPTHUB_TTS_FALLBACK_ON_5XX:-false}
       # Распознавание речи (Whisper): ru стабильнее для русской речи, если клиент не передал language
       GPTHUB_ASR_DEFAULT_LANGUAGE: ${GPTHUB_ASR_DEFAULT_LANGUAGE:-ru}
       # Опционально: если MWS не принимает tts-1/alloy, задайте свои id (см. GET /v1/models и логи шлюза при ошибке TTS).
@@ -77,10 +79,12 @@ services:
       WEBUI_AUTH: ${WEBUI_AUTH:-true}
       ENABLE_OLLAMA_API: "false"
       ENABLE_OPENAI_API: "true"
-      OPENAI_API_BASE_URL: http://gpthub-gateway:8080/v1
-      OPENAI_API_BASE_URLS: http://gpthub-gateway:8080/v1
-      OPENAI_API_KEY: ${MWS_API_KEY:?set MWS_API_KEY in .env}
-      OPENAI_API_KEYS: ${MWS_API_KEY:?set MWS_API_KEY in .env}
+      # Несколько бэкендов: в .env задайте OPENAI_API_BASE_URLS и OPENAI_API_KEYS через «;» (порядок пар должен совпадать).
+      # Пример с Grok: OPENAI_API_BASE_URLS=http://gpthub-gateway:8080/v1;https://api.x.ai/v1 и OPENAI_API_KEYS=mws-ключ;xai-ключ
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-http://gpthub-gateway:8080/v1}
+      OPENAI_API_BASE_URLS: ${OPENAI_API_BASE_URLS:-http://gpthub-gateway:8080/v1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-${MWS_API_KEY:?set MWS_API_KEY in .env}}
+      OPENAI_API_KEYS: ${OPENAI_API_KEYS:-${MWS_API_KEY:?set MWS_API_KEY in .env}}
       WEBUI_URL: ${WEBUI_URL:-http://localhost:3000}
       WEBUI_NAME: "${WEBUI_NAME:-gena 2.0}"
       DEFAULT_MODELS: '["gpthub-auto"]'

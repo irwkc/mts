@@ -11,7 +11,7 @@ TASK_REPO_URL="${TASK_REPO_URL:-https://git.truetecharena.ru/tta/true-tech-hack2
 BRANCH="${BRANCH:-main1}"
 
 CLONE_URL="$TASK_REPO_URL"
-if [[ -n "${GITLAB_TOKEN:-}" ]]; then
+if [[ -n "${GITLAB_TOKEN:-}" ]] && [[ "$TASK_REPO_URL" == https://* ]]; then
   GL_USER="${GITLAB_USER:-oauth2}"
   CLONE_URL="${TASK_REPO_URL/https:\/\//https://${GL_USER}:${GITLAB_TOKEN}@}"
 fi
@@ -22,17 +22,20 @@ if [[ ! -d task-repo/.git ]]; then
   echo ">>> Клонирую task-repo в $WORK/task-repo"
   if ! git clone "$CLONE_URL" task-repo; then
     echo ""
-    echo "GitLab отклонил доступ. Сделай одно из двух:"
+    echo "GitLab отклонил доступ."
     echo ""
-    echo "1) Personal Access Token (GitLab → Settings → Access Tokens): scope read_repository + write_repository"
+    echo "1) Новый токен: Preferences → Access Tokens → read_repository + write_repository"
+    echo "2) Запуск с токеном в URL (обходит кэш пароля):"
     echo "   export GITLAB_TOKEN='glpat-...'"
-    echo "   ./merge-to-gitlab/go.sh"
+    echo "   ./merge-to-gitlab/clone-gitlab.sh"
+    echo "3) Если токен точно верный — попробуй логин GitLab вместо oauth2:"
+    echo "   export GITLAB_USER='твой_логин_на_gitlab'"
+    echo "4) Стереть залипший пароль в macOS:"
+    echo "   printf 'host=git.truetecharena.ru\\nprotocol=https\\n\\n' | git credential-osxkeychain erase"
     echo ""
-    echo "2) SSH: добавь ключ в GitLab, потом:"
-    echo "   export TASK_REPO_URL='git@git.truetecharena.ru:tta/true-tech-hack2026-gpthub/baobab/task-repo.git'"
-    echo "   ./merge-to-gitlab/go.sh"
+    echo "SSH: export TASK_REPO_URL='git@git.truetecharena.ru:tta/.../task-repo.git' && ./merge-to-gitlab/go.sh"
     echo ""
-    echo "Если папка task-repo создалась пустой/битая — удали: rm -rf \"$WORK/task-repo\""
+    echo "Если папка битая: rm -rf \"$WORK/task-repo\""
     exit 1
   fi
 else
@@ -86,4 +89,18 @@ echo ""
 echo ">>> Готово. Если конфликты — разрули в $WORK/task-repo и сделай commit."
 echo ">>> Отправка на GitLab:"
 echo "    cd \"$WORK/task-repo\""
-echo "    git push origin $BRANCH"
+if [[ -n "${GITLAB_TOKEN:-}" ]] && git remote get-url origin 2>/dev/null | grep -q '^https://'; then
+  ORIG="$(git remote get-url origin)"
+  if [[ "$ORIG" != *"@"* ]]; then
+    GU="${GITLAB_USER:-oauth2}"
+    AUTH_ORIG="${ORIG/https:\/\//https://${GU}:${GITLAB_TOKEN}@}"
+    echo "    (подставляю токен в origin для push)"
+    git remote set-url origin "$AUTH_ORIG"
+  fi
+fi
+echo ">>> Пробую git push origin $BRANCH"
+if ! git push origin "$BRANCH"; then
+  echo ""
+  echo ">>> push не удался — смотри сообщение выше. Повтори:"
+  echo "    cd \"$WORK/task-repo\" && git push origin $BRANCH"
+fi

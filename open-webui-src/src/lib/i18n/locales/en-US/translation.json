@@ -2098,6 +2098,7 @@
 	"Voice mode": "",
 	"Voice response in progress…": "Speaking…",
 	"Reply text is shown in the voice call panel.": "Reply text is shown in the voice call panel.",
+	"Using browser voice; server TTS unavailable.": "Using browser voice; server TTS is unavailable.",
 	"Transcript": "Transcript",
 	"Conversation mode": "Conversation mode",
 	"After the assistant speaks, turn on the microphone for your next phrase (text chat only).": "After the assistant speaks, turn on the microphone for your next phrase (text chat only).",
