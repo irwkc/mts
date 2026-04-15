@@ -24,10 +24,10 @@ if [[ "${has_key}" -eq 0 ]]; then
 fi
 
 if docker compose version >/dev/null 2>&1; then
-  exec docker compose up -d --build
+  exec docker compose up -d
 fi
 if command -v docker-compose >/dev/null 2>&1; then
-  exec docker-compose up -d --build
+  exec docker-compose up -d
 fi
 echo "Need Docker Compose: install Docker Desktop / plugin, or docker-compose" >&2
 exit 1

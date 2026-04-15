@@ -72,8 +72,7 @@ class Settings(BaseSettings):
         if len(s) >= 2 and s[0] in "\"'" and s[-1] == s[0]:
             return s[1:-1].strip()
         return s
-    # Дефолты под типичный разрешённый каталог MWS (см. docs/MWS_TEAM_MODELS.md); у ключа «команда» часто нет mts-anya.
-    default_llm: str = "llama-3.1-8b-instruct"
+    default_llm: str = "mws-gpt-alpha"
     vision_model: str = "cotype-pro-vl-32b"
     image_gen_model: str = "qwen-image"
     # Правка существующей картинки: /images/edits или img2img; пустая модель = та же, что для generations
@@ -108,8 +107,7 @@ class Settings(BaseSettings):
         validation_alias="GPTHUB_ASR_DEFAULT_LANGUAGE",
     )
     embedding_model: str = "bge-m3"
-    # id через запятую: не использовать как fallback для chat/completions (иначе пустые ответы в UI).
-    # См. docs/MWS_TEAM_MODELS.md — при ограниченном каталоге первой по алфавиту могла оказаться bge-m3.
+    # id через запятую: не использовать как fallback для chat/completions.
     non_chat_model_ids: str = Field(
         default="bge-m3",
         validation_alias="GPTHUB_NON_CHAT_MODEL_IDS",
@@ -137,7 +135,7 @@ class Settings(BaseSettings):
         description="После ответа извлекать 0..N фактов отдельным вызовом LLM",
     )
     memory_digest_model: str = Field(
-        default="llama-3.1-8b-instruct",
+        default="mws-gpt-alpha",
         validation_alias="GPTHUB_MEMORY_DIGEST_MODEL",
     )
     memory_raw_fallback: bool = Field(
@@ -173,8 +171,13 @@ class Settings(BaseSettings):
     )
     # Аналог mws-gpt-alpha в gena/router — «обычный диалог»; в router_logic пустая строка = default_llm
     gena_chat_model: str = Field(
-        default="llama-3.1-8b-instruct",
+        default="mws-gpt-alpha",
         validation_alias="GPTHUB_GENA_CHAT_MODEL",
+    )
+    # Только короткие реплики (быстрый путь auto:simple_chat). Пусто = как GPTHUB_GENA_CHAT_MODEL.
+    simple_chat_model: str = Field(
+        default="",
+        validation_alias="GPTHUB_SIMPLE_CHAT_MODEL",
     )
     gena_long_doc_word_threshold: int = Field(
         default=600,

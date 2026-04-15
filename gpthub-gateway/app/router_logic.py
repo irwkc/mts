@@ -11,7 +11,7 @@ from typing import Any, Optional
 
 from app.config import settings
 
-# Короче этого — без вызова нейро-роутера LLM (сразу default_llm): приветствия, короткий чат.
+# Короче этого — без вызова нейро-роутера LLM (сразу simple_turn_chat_target): приветствия, короткий чат.
 _ROUTER_SIMPLE_TURN_MAX = 360
 
 # Шире, как в gena/router: «сгенерируй коня», «нарисуй кота», без ложных срабатываний на «сгенерируй код»
@@ -108,6 +108,12 @@ def gena_chat_target() -> str:
     """Модель «обычного чата» (аналог mws-gpt-alpha в gena/router)."""
     g = (settings.gena_chat_model or "").strip()
     return g if g else settings.default_llm
+
+
+def simple_turn_chat_target() -> str:
+    """Модель для коротких реплик (auto:simple_chat). Иначе совпадает с gena_chat_target."""
+    s = (settings.simple_chat_model or "").strip()
+    return s if s else gena_chat_target()
 
 
 def strip_gena_assistant_markers(messages: list[dict[str, Any]]) -> None:
@@ -281,11 +287,11 @@ def try_fast_path_default_llm_for_simple_turn(
         return None
     if URL_RE.search(text) or _DEEP_RESEARCH_HINT.search(text):
         return None
-    dm = settings.default_llm
-    if dm in available_ids:
-        return (dm, "auto:simple_chat")
+    target = simple_turn_chat_target()
+    if target in available_ids:
+        return (target, "auto:simple_chat")
     # Тот же fallback, что и везде в gena: не брать «первую по алфавиту» (часто bge-m3 → пустой чат).
-    coerced = _coerce_available_model(dm, available_ids)
+    coerced = _coerce_available_model(target, available_ids)
     return (coerced, "auto:simple_chat")
 
 

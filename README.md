@@ -1,24 +1,58 @@
-# GPTHub
+# GPTHub (локальный запуск в Docker)
 
-Веб-чат на [Open WebUI](https://github.com/open-webui/open-webui) и шлюзе **GPTHub Gateway** к API MWS GPT (`https://api.gpt.mws.ru/v1`).
+Да: взят смысл коммита **7edcaa1** (для **сервера** за nginx — пустой `GPTHUB_PUBLIC_BASE_URL`, относительные `/static/...` и HTTPS). Здесь **дефолты переведены на локалку**: `GPTHUB_PUBLIC_BASE_URL=http://127.0.0.1:8081`, `WEBUI_URL=http://localhost:3000`, UI слушает `3000` на всех интерфейсах. Для VPS отдельно задаёшь в `.env` пустой или `https://…` URL — как в том коммите.
 
-## Запуск одной командой (GitLab / локально)
+Нужны **Docker** и **Compose** (`docker compose` или `docker-compose`).
 
-Нужны **Docker** и **Compose**: подкоманда `docker compose` или отдельная утилита `docker-compose` (скрипт поддерживает оба варианта).
+## Одна команда на локалке
+
+После того как в **`.env`** уже есть рабочий **`MWS_API_KEY`** (не заглушка):
 
 ```bash
-git clone <URL_репозитория.git>
-cd <папка-проекта>
-MWS_API_KEY=ваш_ключ bash scripts/local-up.sh
+bash scripts/local-up.sh
 ```
 
-Откройте **http://localhost:3000** · API шлюза: **http://localhost:8081/v1/models**
+То же из корня репозитория (если `chmod +x local-up.sh`):
 
-Скрипт при первом запуске создаёт `.env` из `.env.example`, при необходимости добавляет `GPTHUB_PUBLIC_BASE_URL=http://127.0.0.1:8081` и выполняет `docker compose up -d --build`. Ключ можно держать только в `.env` (`MWS_API_KEY=...`) и вызывать `bash scripts/local-up.sh` или `./local-up.sh`.
+```bash
+./local-up.sh
+```
 
-## Документация
+Скрипт только поднимает контейнеры: **`docker compose up -d`** (без тяжёлой сборки UI на машине).
 
-Архитектура, модели, деплой, чеклисты: каталог [**docs/**](docs/). Развёрнутое описание проекта: [docs/README_PROJECT.md](docs/README_PROJECT.md).
+Первый раз, если `.env` ещё нет — одна строка с ключом:
+
+```bash
+MWS_API_KEY=sk-ваш_ключ bash scripts/local-up.sh
+```
+
+(скрипт сам скопирует `.env` из `.env.example`, при необходимости допишет `GPTHUB_PUBLIC_BASE_URL` и запустит Docker.)
+
+Эквивалент без скрипта, когда `.env` уже настроен:
+
+```bash
+docker compose up -d
+```
+
+Откройте **http://localhost:3000** · шлюз: **http://127.0.0.1:8081/v1/models**  
+Остановка: **`docker compose down`**
+
+### Дефолты под локалку
+
+| Переменная | По умолчанию |
+|------------|----------------|
+| `WEBUI_URL` | `http://localhost:3000` |
+| `GPTHUB_PUBLIC_BASE_URL` | `http://127.0.0.1:8081` |
+
+### Продакшен (как 7edcaa1)
+
+На сервере за nginx в **`.env`**:
+
+```env
+GPTHUB_PUBLIC_BASE_URL=
+```
+
+или `https://ваш-домен`.
 
 ## Лицензии
 

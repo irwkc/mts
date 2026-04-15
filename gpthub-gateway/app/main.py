@@ -1,6 +1,4 @@
-"""
-OpenAI-совместимый шлюз: MWS GPT + автроутер, память, RAG, веб-инструменты.
-"""
+"""OpenAI-совместимый шлюз: MWS GPT, авто-роутер, память, RAG, веб-инструменты."""
 
 from __future__ import annotations
 
@@ -12,15 +10,15 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import quote
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
-from urllib.parse import quote
-
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
+from app.openai_content import delta_text, openai_content_to_text
 from app.image_utils import image_api_response_to_data_url
 from app.chroma_store import recall_block as chroma_recall_block, save_message as chroma_save_message
 from app.gena_features import (
@@ -79,34 +77,7 @@ from app.web_tools import (
 )
 
 
-def _normalize_assistant_message_content(msg: dict[str, Any]) -> None:
-    """Content ответа: строка или массив частей (OpenAI multimodal) — в одну строку для UI."""
-    c = msg.get("content")
-    if isinstance(c, str):
-        if not c.strip():
-            _merge_reasoning_text_into_assistant(msg)
-        return
-    if isinstance(c, list):
-        parts: list[str] = []
-        for p in c:
-            if isinstance(p, dict):
-                t = p.get("text")
-                if p.get("type") == "text" and isinstance(t, str):
-                    parts.append(t)
-                elif isinstance(t, str):
-                    parts.append(t)
-            elif isinstance(p, str):
-                parts.append(p)
-        msg["content"] = "".join(parts) if parts else ""
-    elif c is None:
-        msg["content"] = ""
-
-    if not (isinstance(msg.get("content"), str) and (msg.get("content") or "").strip()):
-        _merge_reasoning_text_into_assistant(msg)
-
-
 def _merge_reasoning_text_into_assistant(msg: dict[str, Any]) -> None:
-    """MWS / reasoning-модели иногда кладут ответ в reasoning*, а не в content."""
     for key in ("reasoning_content", "reasoning"):
         v = msg.get(key)
         if isinstance(v, str) and v.strip():
@@ -114,29 +85,23 @@ def _merge_reasoning_text_into_assistant(msg: dict[str, Any]) -> None:
             return
 
 
-def _delta_content_to_text(delta: dict[str, Any]) -> str:
-    c = delta.get("content")
+def _normalize_assistant_message_content(msg: dict[str, Any]) -> None:
+    c = msg.get("content")
     if isinstance(c, str):
-        return c
+        if not c.strip():
+            _merge_reasoning_text_into_assistant(msg)
+        return
     if isinstance(c, list):
-        parts: list[str] = []
-        for p in c:
-            if isinstance(p, dict):
-                t = p.get("text")
-                typ = (p.get("type") or "").lower()
-                if typ in ("text", "output_text") and isinstance(t, str):
-                    parts.append(t)
-                elif isinstance(t, str):
-                    parts.append(t)
-            elif isinstance(p, str):
-                parts.append(p)
-        return "".join(parts)
-    return ""
+        msg["content"] = openai_content_to_text(c, for_delta=False)
+    elif c is None:
+        msg["content"] = ""
+
+    if not (isinstance(msg.get("content"), str) and (msg.get("content") or "").strip()):
+        _merge_reasoning_text_into_assistant(msg)
 
 
 def _ensure_delta_content_for_client(delta: dict[str, Any]) -> None:
-    """Чтобы Open WebUI не показывал пустой бабл, дублируем вспомогательные поля в delta.content."""
-    if _delta_content_to_text(delta):
+    if delta_text(delta):
         return
     for key in ("reasoning_content", "reasoning", "output_text", "text"):
         v = delta.get(key)
@@ -176,27 +141,7 @@ async def _persist_turn_memory(
         logger.debug("memory persist: %s", ex)
 
 
-def _assistant_content_to_plain(msg: dict[str, Any]) -> str:
-    c = msg.get("content")
-    if isinstance(c, str):
-        return c
-    if isinstance(c, list):
-        parts: list[str] = []
-        for p in c:
-            if isinstance(p, dict):
-                t = p.get("text")
-                if p.get("type") == "text" and isinstance(t, str):
-                    parts.append(t)
-                elif isinstance(t, str):
-                    parts.append(t)
-            elif isinstance(p, str):
-                parts.append(p)
-        return "".join(parts)
-    return ""
-
-
 def _patch_stream_chunk_for_ui(j: dict[str, Any]) -> None:
-    """Нормализация SSE: reasoning в content + message в delta (нестандартные провайдеры)."""
     choices = j.get("choices")
     if not isinstance(choices, list) or not choices:
         return
@@ -206,10 +151,10 @@ def _patch_stream_chunk_for_ui(j: dict[str, Any]) -> None:
         ch0["delta"] = {}
         delta = ch0["delta"]
     _ensure_delta_content_for_client(delta)
-    if not _delta_content_to_text(delta):
+    if not delta_text(delta):
         msg = ch0.get("message")
         if isinstance(msg, dict):
-            plain = _assistant_content_to_plain(msg)
+            plain = openai_content_to_text(msg.get("content"), for_delta=False)
             if plain:
                 delta["content"] = plain
             else:
@@ -300,6 +245,13 @@ def _configure_logging() -> None:
 _configure_logging()
 logger = logging.getLogger("gpthub")
 
+
+def _upstream_json_error(e: httpx.HTTPStatusError) -> JSONResponse:
+    return JSONResponse(
+        {"error": {"message": e.response.text, "type": "upstream_error"}},
+        status_code=e.response.status_code,
+    )
+
 _models_cache: dict[str, Any] = {"t": 0.0, "data": None}
 _memory: Optional[MemoryStore] = None
 _rag: Optional[RAGStore] = None
@@ -347,6 +299,15 @@ def _sse_headers(request: Request) -> dict[str, str]:
     return {**_SSE_HEADERS, "X-Request-ID": str(rid)}
 
 
+def _mws_upstream_stream_headers() -> dict[str, str]:
+    """Заголовки к MWS для SSE: без gzip — иначе при обрыве потока клиенты (aiohttp/Open WebUI) ловят TransferEncodingError."""
+    return {
+        "Authorization": f"Bearer {settings.mws_api_key}",
+        "Content-Type": "application/json",
+        "Accept-Encoding": "identity",
+    }
+
+
 _static_root = settings.data_dir / "static"
 _static_root.mkdir(parents=True, exist_ok=True)
 (_static_root / "presentations").mkdir(parents=True, exist_ok=True)
@@ -356,7 +317,6 @@ _static_root.mkdir(parents=True, exist_ok=True)
 
 @app.get("/preview/pptx", response_class=HTMLResponse)
 async def preview_pptx(request: Request, path: str) -> HTMLResponse:
-    """Страница с iframe Office Online; внешнему viewer нужен публичный HTTPS-URL к PPTX."""
     rel = (path or "").strip().lstrip("/")
     if ".." in rel or not rel.startswith("static/presentations/") or not rel.lower().endswith(".pptx"):
         return HTMLResponse("<p>Invalid path</p>", status_code=400)
@@ -388,7 +348,6 @@ iframe {{ width: 100%; height: calc(100vh - 120px); border: 0; background: #000;
 
 @app.get("/presentation/pdf/{stem}")
 async def presentation_pdf_download(stem: str) -> FileResponse:
-    """Скачивание PDF (конвертация PPTX через LibreOffice при первом запросе)."""
     stem_ok = validate_stem(stem)
     pptx = pptx_path(stem_ok)
     pdf = pptx.parent / f"{stem_ok}.pdf"
@@ -477,10 +436,7 @@ async def embeddings(request: Request) -> Response:
         out = await _client.post_json("/embeddings", body)
         return JSONResponse(out)
     except httpx.HTTPStatusError as e:
-        return JSONResponse(
-            {"error": {"message": e.response.text, "type": "upstream_error"}},
-            status_code=e.response.status_code,
-        )
+        return _upstream_json_error(e)
 
 
 @app.post("/v1/completions")
@@ -490,10 +446,7 @@ async def completions(request: Request) -> Response:
         out = await _client.post_json("/completions", body)
         return JSONResponse(out)
     except httpx.HTTPStatusError as e:
-        return JSONResponse(
-            {"error": {"message": e.response.text, "type": "upstream_error"}},
-            status_code=e.response.status_code,
-        )
+        return _upstream_json_error(e)
 
 
 @app.post("/v1/images/generations")
@@ -503,10 +456,7 @@ async def images(request: Request) -> Response:
         out = await _client.post_json("/images/generations", body)
         return JSONResponse(out)
     except httpx.HTTPStatusError as e:
-        return JSONResponse(
-            {"error": {"message": e.response.text, "type": "upstream_error"}},
-            status_code=e.response.status_code,
-        )
+        return _upstream_json_error(e)
 
 
 @app.post("/v1/images/edits")
@@ -516,15 +466,11 @@ async def images_edits(request: Request) -> Response:
         out = await _client.post_json("/images/edits", body)
         return JSONResponse(out)
     except httpx.HTTPStatusError as e:
-        return JSONResponse(
-            {"error": {"message": e.response.text, "type": "upstream_error"}},
-            status_code=e.response.status_code,
-        )
+        return _upstream_json_error(e)
 
 
 @app.post("/v1/audio/speech")
 async def audio_speech(request: Request) -> Response:
-    """TTS (голос ответа); прокси на MWS. Если endpoint недоступен — 502."""
     body = await request.json()
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
@@ -547,7 +493,6 @@ async def audio_speech(request: Request) -> Response:
 
 @app.post("/v1/audio/transcriptions")
 async def transcribe(request: Request) -> Response:
-    # multipart → MWS; язык: клиент > GPTHUB_ASR_DEFAULT_LANGUAGE > не передаём (авто Whisper)
     form = await request.form()
     files = {}
     data = {}
@@ -601,10 +546,6 @@ async def maybe_music_demo_chat(
     stream: bool,
     auto_mode: bool,
 ) -> Optional[dict[str, Any]]:
-    """Демо MP3 (music_demo): только нестрим + gpthub-auto. Иначе None.
-
-    В UI при stream=true перехват не срабатывает (см. ТЗ: демо-мелодия без stream).
-    """
     if stream or not auto_mode or not (last_text or "").strip():
         return None
     if not user_wants_music_demo(last_text):
@@ -660,7 +601,6 @@ async def maybe_image_generation_chat(
     route_note: str,
     requested_model: str = "",
 ) -> Optional[dict[str, Any]]:
-    """Вызов /v1/images/generations при явном запросе на картинку (текстовый промпт)."""
     want = "image_gen" in route_note
     lu = last_user_message(messages)
     text = _content_to_text(lu.get("content") if lu else None)
@@ -758,7 +698,6 @@ async def chat_completions(request: Request) -> Response:
     lu = last_user_message(messages)
     last_text = _content_to_text(lu.get("content") if lu else None)
 
-    # Быстрые перехваты gena (в авто-режиме: презентация, deep research; картинки — всегда).
     want_image = False
     if last_text and stream:
         want_image = should_stream_image_gena(last_text, stream, message_has_image(messages), messages)
@@ -821,7 +760,6 @@ async def chat_completions(request: Request) -> Response:
         route_note,
     )
 
-    # Долгосрочная память + RAG scope
     extra_parts: list[str] = []
     _gid = (settings.gena_system_identity or "").strip()
     if _gid:
@@ -878,17 +816,13 @@ async def chat_completions(request: Request) -> Response:
     except Exception as log_ex:
         logger.warning("chat to_mws log failed (non-fatal): %s", log_ex, exc_info=True)
 
-    # логика памяти после ответа — только если не stream (ниже для stream буферизуем)
     if not stream:
         try:
             out = await _client.post_json(
                 "/chat/completions", new_body, log_context=f"rid={rid}"
             )
         except httpx.HTTPStatusError as e:
-            return JSONResponse(
-                {"error": {"message": e.response.text, "type": "upstream_error"}},
-                status_code=e.response.status_code,
-            )
+            return _upstream_json_error(e)
         try:
             ch0 = (out.get("choices") or [{}])[0]
             msg = ch0.get("message")
@@ -905,7 +839,11 @@ async def chat_completions(request: Request) -> Response:
             for _ in range(4):
                 ch0 = (out.get("choices") or [{}])[0]
                 msg = ch0.get("message")
-                plain = _assistant_content_to_plain(msg) if isinstance(msg, dict) else ""
+                plain = (
+                    openai_content_to_text(msg.get("content"), for_delta=False)
+                    if isinstance(msg, dict)
+                    else ""
+                )
                 if not isinstance(plain, str):
                     break
                 leaked_q = try_parse_openwebui_queries_json(plain)
@@ -963,7 +901,7 @@ async def chat_completions(request: Request) -> Response:
         buf: list[str] = []
 
         async def pump_stream(resp: httpx.Response):
-            nonlocal done_sent, mode, acc
+            nonlocal done_sent, mode, acc, buf
             async for line in resp.aiter_lines():
                 if not line:
                     continue
@@ -979,7 +917,7 @@ async def chat_completions(request: Request) -> Response:
                             j = json.loads(payload)
                             _patch_stream_chunk_for_ui(j)
                             delta = (j.get("choices") or [{}])[0].get("delta") or {}
-                            c = _delta_content_to_text(delta)
+                            c = delta_text(delta)
                             if c:
                                 acc.append(c)
                             out_line = f"data: {json.dumps(j, ensure_ascii=False)}"
@@ -1019,30 +957,59 @@ async def chat_completions(request: Request) -> Response:
                     buf.append(piece)
                     continue
 
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            async with client.stream(
-                "POST",
-                f"{settings.mws_api_base.rstrip('/')}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {settings.mws_api_key}",
-                    "Content-Type": "application/json",
-                },
-                content=json.dumps({**new_body, "stream": True}),
-            ) as resp:
-                if resp.status_code >= 400:
-                    err = await resp.aread()
-                    err_text = err.decode(errors="replace")
-                    ec = max(500, int(settings.log_upstream_error_chars))
-                    logger.error(
-                        "MWS stream /chat/completions rid=%s HTTP %s\nbody:\n%s",
-                        rid,
-                        resp.status_code,
-                        err_text[:ec] or "(empty)",
-                    )
-                    yield f"data: {json.dumps({'error': {'message': err_text}})}\n\n"
-                    return
-                async for item in pump_stream(resp):
-                    yield item
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                async with client.stream(
+                    "POST",
+                    f"{settings.mws_api_base.rstrip('/')}/chat/completions",
+                    headers=_mws_upstream_stream_headers(),
+                    content=json.dumps({**new_body, "stream": True}),
+                ) as resp:
+                    if resp.status_code >= 400:
+                        err = await resp.aread()
+                        err_text = err.decode(errors="replace")
+                        ec = max(500, int(settings.log_upstream_error_chars))
+                        logger.error(
+                            "MWS stream /chat/completions rid=%s HTTP %s\nbody:\n%s",
+                            rid,
+                            resp.status_code,
+                            err_text[:ec] or "(empty)",
+                        )
+                        yield f"data: {json.dumps({'error': {'message': err_text}})}\n\n"
+                        return
+                    async for item in pump_stream(resp):
+                        yield item
+        except httpx.RequestError as e:
+            logger.exception(
+                "MWS stream read failed rid=%s model=%r",
+                rid,
+                resolved_model,
+            )
+            err_payload = {
+                "error": {
+                    "message": (
+                        f"Поток от API прерван ({type(e).__name__}). "
+                        "Повторите запрос; при повторении отключите streaming в настройках чата."
+                    ),
+                    "type": "upstream_stream_error",
+                }
+            }
+            yield f"data: {json.dumps(err_payload, ensure_ascii=False)}\n\n"
+            if not done_sent:
+                yield "data: [DONE]\n\n"
+            return
+        except Exception as e:
+            logger.exception("MWS stream unexpected error rid=%s", rid)
+            err_payload = {
+                "error": {
+                    "message": str(e) or type(e).__name__,
+                    "type": "gateway_stream_error",
+                }
+            }
+            yield f"data: {json.dumps(err_payload, ensure_ascii=False)}\n\n"
+            if not done_sent:
+                yield "data: [DONE]\n\n"
+            return
 
         if mode == "hold":
             full_text = "".join(acc)
@@ -1067,10 +1034,7 @@ async def chat_completions(request: Request) -> Response:
                         async with client.stream(
                             "POST",
                             f"{settings.mws_api_base.rstrip('/')}/chat/completions",
-                            headers={
-                                "Authorization": f"Bearer {settings.mws_api_key}",
-                                "Content-Type": "application/json",
-                            },
+                            headers=_mws_upstream_stream_headers(),
                             content=json.dumps(retry_body),
                         ) as resp2:
                             if resp2.status_code >= 400:
@@ -1099,7 +1063,7 @@ async def chat_completions(request: Request) -> Response:
                                                 delta = (j.get("choices") or [{}])[0].get(
                                                     "delta"
                                                 ) or {}
-                                                c = _delta_content_to_text(delta)
+                                                c = delta_text(delta)
                                                 if c:
                                                     acc.append(c)
                                                 out_line = f"data: {json.dumps(j, ensure_ascii=False)}"
@@ -1133,10 +1097,7 @@ async def chat_completions(request: Request) -> Response:
                         async with client.stream(
                             "POST",
                             f"{settings.mws_api_base.rstrip('/')}/chat/completions",
-                            headers={
-                                "Authorization": f"Bearer {settings.mws_api_key}",
-                                "Content-Type": "application/json",
-                            },
+                            headers=_mws_upstream_stream_headers(),
                             content=json.dumps(retry_body),
                         ) as resp2:
                             if resp2.status_code >= 400:
@@ -1165,7 +1126,7 @@ async def chat_completions(request: Request) -> Response:
                                                 delta = (j.get("choices") or [{}])[0].get(
                                                     "delta"
                                                 ) or {}
-                                                c = _delta_content_to_text(delta)
+                                                c = delta_text(delta)
                                                 if c:
                                                     acc.append(c)
                                                 out_line = f"data: {json.dumps(j, ensure_ascii=False)}"
